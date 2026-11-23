@@ -446,6 +446,65 @@ def Board.deal(deck: +List<Card>) -> Board:
   # a fresh deal: every card dealt face up onto an empty board
   Board{Deal.go(deck, List.replicate(+List<Card>, 8n, Nil{}), 0), List.replicate(+Maybe<Card>, 4n, None{}), List.replicate(U32, 4n, 0)}
 
+# --- The Microsoft deal ----------------------------------------
+# The classic game numbers: a seeded generator picks the cards.
+# One round: state' = (214013 * state + 2531011) & 0x7fffffff,
+# rand = state' >> 16; the rand-th of the remaining cards is dealt,
+# and the last remaining card fills its slot. Game 1 opens with
+# JD 2D 9H JC 5D 7H 7C 5H, as published.
+
+def Deck.at(xs: +List<Card>, n: Nat, d: Card) -> Card:
+  # the card at n, or d once n runs past the end
+  Maybe.default(&2, Card, List.get(&2, Card, xs, n), d)
+
+def MS.next(state: U32) -> U32:
+  # one round of the Microsoft generator: the next 31-bit state
+  U32.and(U32.add(U32.mul(state, 214013), 2531011), 2147483647)
+
+def MS.suits() -> +List<Suit>:
+  # the suit order behind card i's i % 4: clubs, diamonds, hearts, spades
+  [Clubs{}, Diamonds{}, Hearts{}, Spades{}]
+
+def MS.rank_suits(+r: Rank, +suits: +List<Suit>) -> +List<Card>:
+  # one card of every suit at one rank
+  match suits:
+    case Nil{}:
+      Nil{}
+    case s <> ss:
+      Card{s, r} <> MS.rank_suits(r, ss)
+
+def MS.fresh_deck(+ranks: +List<Rank>, +suits: +List<Suit>) -> +List<Card>:
+  # the pre-shuffle deck: AC AD AH AS 2C 2D 2H 2S ... KC KD KH KS
+  match ranks:
+    case Nil{}:
+      Nil{}
+    case r <> rs:
+      List.append(&2, Card, MS.rank_suits(r, suits), MS.fresh_deck(rs, suits))
+
+def MS.step(left: Nat, +n: U32, state: U32, +xs: +List<Card>, out: +List<Card>) -> +List<Card>:
+  # one round of the shuffle: deal the card at j = rand % n, and
+  # move the card at n-1 into slot j; out gathers the dealt cards.
+  # n is left as a number, so it can be read more than once.
+  match left:
+    case 0n:
+      List.reverse(&2, Card, out)
+    case 1n+p:
+      +state2 = MS.next(state)
+      r = U32.shrn(state2, 16n)
+      +j = U32.mod(r, n)
+      picked = Deck.at(xs, U32.to_nat(j), Card{Spades{}, Ace{}})
+      tail = Deck.at(xs, U32.to_nat(U32.sub(n, 1)), Card{Spades{}, Ace{}})
+      MS.step(p, U32.sub(n, 1), state2, List.set(&2, Card, xs, U32.to_nat(j), tail), picked <> out)
+
+def MS.deck(game: U32) -> +List<Card>:
+  # the 52 cards of a game number, in deal order
+  MS.step(52n, 52, game, MS.fresh_deck(Rank.all(), MS.suits()), Nil{})
+
+def Board.deal_ms(game: U32) -> Board:
+  # the classic Microsoft deal by game number
+  Board.deal(MS.deck(game))
+
+
 # --- The rules, checked ----------------------------------------
 
 def Board.move_ok(b: Board, m: Move) -> Maybe<&2, Unit>:

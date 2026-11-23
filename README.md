@@ -20,8 +20,33 @@ fish_add_path $HOME/.bend/bin
 
 ## Usage
 
-Right now the repo holds goal 1: the abstract rules of the game in
-`freecell.bend`, with the law/proof gate from `LAWS.bend` and `PROOF.bend`.
+Right now the repo holds goals 1-3: the abstract rules in
+`freecell.bend` (including the classic Microsoft deals), the
+law/proof gate from `LAWS.bend` and `PROOF.bend`, and the terminal
+game in `terminal-game.bend`.
+
+### Play the terminal game
+
+```bash
+bend terminal-game.bend            # game 1
+bend terminal-game.bend 11982      # any Microsoft game number
+```
+
+The deals are the classic Microsoft ones, so game numbers match the
+published layouts (game 1 opens JD 2D 9H JC 5D 7H 7C 5H). Moves are
+two words, `<from> <to>`:
+
+```
+  1-8  a cascade column    a-d  a free cell    h  the foundation
+  e.g. '1 2'  the top of column 1 onto column 2
+```
+
+Plus `u` (undo), `h` (help) and `q` (quit); the end of input quits
+too. A scripted session works over a pipe:
+
+```bash
+printf "1 a\n1 2\nu\nq\n" | bend terminal-game.bend
+```
 
 ### Run the rules demo
 
@@ -55,7 +80,7 @@ cascades:
 
 ```bash
 bend PROOF.bend      # the gate: prints ALL PROOFS CHECK
-bend LAWS.bend       # the claims alone: prints SOME PROOFS FAIL (3 open TODOs)
+bend LAWS.bend       # the claims alone: prints SOME PROOFS FAIL (the open claims, by design)
 ```
 
 `LAWS.bend` states the laws as open claims and `PROOF.bend` fills them in,
