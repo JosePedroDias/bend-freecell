@@ -1,5 +1,6 @@
 import Base
 import ./freecell.bend as FreeCell
+import ./solver.bend as Solver
 
 # ===================================================================
 # The laws of freecell: the claims the game rules must answer to.
@@ -29,3 +30,10 @@ law ms_deal_holds_all_cards:
 
 law ms_deal_11982_holds_all_cards:
   {FreeCell.Board.card_count(FreeCell.Board.deal_ms(11982)) == 52 : U32}
+
+# Goal 4 seeds this: asked for game 1, the solver returns a line of
+# play that wins by the rules — every move legal, the last board won.
+# Proving this runs the whole search, so the proof gate takes about
+# a minute.
+law ms_solver_solves_game_1:
+  {Solver.Solve.verified(1) == True{} : Bool}

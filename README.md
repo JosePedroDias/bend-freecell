@@ -20,10 +20,10 @@ fish_add_path $HOME/.bend/bin
 
 ## Usage
 
-Right now the repo holds goals 1-3: the abstract rules in
+Right now the repo holds goals 1-4: the abstract rules in
 `freecell.bend` (including the classic Microsoft deals), the
-law/proof gate from `LAWS.bend` and `PROOF.bend`, and the terminal
-game in `terminal-game.bend`.
+law/proof gate from `LAWS.bend` and `PROOF.bend`, the terminal
+game in `terminal-game.bend`, and the solver in `solver.bend`.
 
 ### Play the terminal game
 
@@ -52,6 +52,32 @@ too. A scripted session works over a pipe:
 ```bash
 printf "1 a\n1 2\nu\nq\n" | bend terminal-game.bend
 ```
+
+### Solve a game
+
+```bash
+bend solver.bend 1        # game 1: a winning line, one move a line
+bend solver.bend 11982    # the famous unsolvable one: says so
+```
+
+The solver is a beam search after the reference solvers: after every
+candidate move the safe home moves play themselves, so the line it
+prints only needs the interesting moves; run moves (supermoves) are
+candidates too, expanded into the single moves the rules take. Each
+level keeps the best 512 boards by cost — cards not home, plus
+unsorted cards, plus used cells, plus the home moves already made —
+and a state is only visited once per level window. A game number
+takes about a minute; the answer is verified against the rules
+before it is printed (`verified: True` on stderr).
+
+Pipe the line straight into the terminal game and watch it win:
+
+```bash
+bend solver.bend 1 2>/dev/null | bend terminal-game.bend 1
+```
+
+`python-reference/` holds the Python prototype the policy was
+validated against, kept for curiosity.
 
 ### Run the rules demo
 
@@ -91,7 +117,8 @@ bend LAWS.bend       # the claims alone: prints SOME PROOFS FAIL (the open claim
 `LAWS.bend` states the laws as open claims and `PROOF.bend` fills them in,
 so only `PROOF.bend` goes green. Run it before every commit (see AGENTS.md).
 `bend PROOF.bend --verdict` re-checks with the BendTT kernel, if Lean
-v4.34.0 is installed.
+v4.34.0 is installed. One law runs the whole solver on game 1, so the
+gate takes about a minute.
 
 ### Build a native binary
 
