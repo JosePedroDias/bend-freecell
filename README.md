@@ -1,10 +1,16 @@
 # Freecell cards game in bend
 
-## Notes
+## Practical Notes
 
 I have installed bend into ~/.bend
 
-## Goals:
+you can make it executable in the fish shell by running
+
+```
+fish_add_path $HOME/.bend/bin
+```
+
+## Goals
 
 1. I want to encode the abstract rules of the freecell card game in bend.
 2. I want to write the laws that enforce those the game rules hold
@@ -81,4 +87,3 @@ bend guide          # the language guide
 bend base           # the Base library (bend base List for one module)
 bend --help         # all commands
 ```
-
