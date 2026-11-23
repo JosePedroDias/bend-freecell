@@ -1,0 +1,17 @@
+import Base
+import ./LAWS.bend as Laws
+
+# ===================================================================
+# The proofs of the laws in LAWS.bend.
+# ===================================================================
+# Each seed law is a closed computation: both sides normalize to
+# the same term, so reflexivity ({==}) proves it.
+
+def Laws.deal_holds_all_cards():
+  {==}
+
+def Laws.empty_board_holds_no_cards():
+  {==}
+
+def Laws.fresh_game_is_not_won():
+  {==}
