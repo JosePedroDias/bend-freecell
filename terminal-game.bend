@@ -19,21 +19,17 @@ import ./freecell.bend as F
 
 # --- The game number --------------------------------------------
 
-def Args.number_of(got: Maybe<&2, U32>) -> U32:
-  # the number a token reads as, or 1
-  match got:
-    case Some{n}:
-      n
-    case None{}:
-      1
-
-def Args.game(args: List<String>) -> U32:
-  # the game number: the first argument after the program name
+def Args.explicit(args: List<String>) -> Maybe<&2, U32>:
+  # the game number asked for on the command line, if any
   match args:
     case Con{_, Con{a, _}}:
-      Args.number_of(U32.read(a))
+      U32.read(a)
     case _:
-      1
+      None{}
+
+def Args.session(+game: U32) -> U32 & F.Board:
+  # a game number with its deal
+  (game, F.Board.deal_ms(game))
 
 # --- Commands ----------------------------------------------------
 
@@ -334,20 +330,59 @@ def Game.loop(fuel: Nat, +game: U32, st: State) -> IO(Unit):
             IO.print("game " ++ U32.show(game) ++ "\n" ++ View.show(board) ++ "\n")
             Game.won(F.Board.is_won(board), board, past, input, st2 => Game.loop(p, game, st2))
 
-def Args.session(args: List<String>) -> U32 & F.Board:
-  # the game number and its deal, from the command line
-  +g = Args.game(args)
-  (g, F.Board.deal_ms(g))
+def Game.pick.go(bad: Bool, seed: U32, again: Unit -> IO(U32)) -> IO(U32):
+  # 11982, the one unsolvable deal of the classic range, is re-drawn
+  match bad:
+    case True{}:
+      again(Unit{})
+    case False{}:
+      do IO<U32>:
+        return seed
 
-def Game.begin(session: U32 & F.Board) -> IO(Unit):
-  # one session, given its game number and deal
+def Game.pick.ok(+seed: U32, again: Unit -> IO(U32)) -> IO(U32):
+  Game.pick.go(U32.is_eq(seed, 11982), seed, again)
+
+def Game.pick(n: U32, again: Unit -> IO(U32)) -> IO(U32):
+  # one draw of the generator, placed in the classic range 1..32000
+  Game.pick.ok(U32.add(U32.mod(n, 32000), 1), again)
+
+def Game.draw_seed(fuel: Nat) -> IO(U32):
+  # a random game from the classic range 1..32000, where every deal
+  # is solvable but 11982 — so draw, and re-draw a 11982. The
+  # recursion is the closure below, one unit of fuel per draw
+  match fuel:
+    case 0n:
+      do IO<U32>:
+        return 1
+    case 1n+p:
+      do IO<U32>:
+        n : U32 <- IO.try(U32, IO.random_u32())
+        Game.pick(n, u => Game.draw_seed(p))
+
+def Game.begin(session: U32 & F.Board, note: String) -> IO(Unit):
+  # one session, given its game number, its deal and a first line
   (game, board) = session
   do IO<Unit>:
+    IO.print(note)
     IO.print("freecell — type 'h' for help, 'q' to quit\n")
     input : File <- IO.try(File, File.open("/dev/stdin", "r"))
     Game.loop(100000n, game, State{board, Nil{}, input})
 
+def Game.begin_seed(+n: U32) -> IO(Unit):
+  # a randomly drawn game, its number said out loud
+  Game.begin(Args.session(n), "random game " ++ U32.show(n) ++ "\n")
+
+def Game.begin_arg(got: Maybe<&2, U32>) -> IO(Unit):
+  # the game the arguments name, or a random solvable one
+  match got:
+    case Some{n}:
+      Game.begin(Args.session(n), "")
+    case None{}:
+      do IO<Unit>:
+        n : U32 <- Game.draw_seed(16n)
+        Game.begin_seed(n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
-    Game.begin(Args.session(args))
+    Game.begin_arg(Args.explicit(args))

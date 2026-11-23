@@ -28,9 +28,14 @@ game in `terminal-game.bend`.
 ### Play the terminal game
 
 ```bash
-bend terminal-game.bend            # game 1
+bend terminal-game.bend            # a random solvable game
 bend terminal-game.bend 11982      # any Microsoft game number
 ```
+
+Without an argument, the game draws a random number from the
+classic range 1-32000 and prints which it elected — every deal in
+that range is solvable but #11982 (the published fact), which is
+re-rolled; a number on the command line deals exactly that game.
 
 The deals are the classic Microsoft ones, so game numbers match the
 published layouts (game 1 opens JD 2D 9H JC 5D 7H 7C 5H). Moves are
