@@ -51,9 +51,11 @@ def Trail.finish(t: Trail) -> +List<F.Move>:
 # --- The beam ---------------------------------------------------
 
 type Entry is Data:
-  # one beam member: where it is, how it got there, and how much
-  # has gone home on the way
-  Entry{board: F.Board, trail: Trail, autos: U32}
+  # one beam member: where it is, how it got there, how much has
+  # gone home on the way — and what it costs to be there, and which
+  # key it has in the seen-set. Both are read once, where the entry
+  # is born, and never rebuilt
+  Entry{board: F.Board, trail: Trail, autos: U32, cost: U32, key: String}
 
 type Search is Data:
   # the beam machine: work to do, a winning line, or no answer
@@ -156,11 +158,31 @@ def Key.board(b: F.Board) -> String:
     case F.Board{cascades, cells, founds}:
       Key.piles(cascades, Key.cells(cells, Key.founds(founds, {SNil{} : String})))
 
-def Key.board_of(e: Entry) -> String:
-  # one entry's board, as a key
+# --- Cost and key, read once -------------------------------------
+
+def Beam.cost_of(b: F.Board, +autos: U32) -> U32:
+  # cards not home, plus unsorted cards, plus used cells, plus the
+  # home moves already made: the reference solvers' estimate
+  match b:
+    case F.Board{cascades, cells, founds}:
+      unhome = (52 - F.Founds.total(founds) : U32)
+      unsorted = F.Piles.unsorted(cascades)
+      used = F.Cells.occupied(cells)
+      ((unhome + unsorted : U32) + (used + autos : U32) : U32)
+
+def Beam.cost(e: Entry) -> U32:
+  # a beam entry's estimate — a field read, not a board walk: the
+  # sort asks for it on every comparison
   match e:
-    case Entry{+board, _, _}:
-      Key.board(board)
+    case Entry{_, _, _, +c, _}:
+      c
+
+def Beam.key_of(e: Entry) -> String:
+  # a beam entry's seen-set key — a field read, not a board walk:
+  # the reseed asks for it on every child
+  match e:
+    case Entry{_, _, _, _, +k}:
+      k
 
 # --- The safe home moves ----------------------------------------
 
@@ -548,24 +570,29 @@ def Beam.child_cons(pair: +List<Entry> & +Map<Unit>, +e: Entry) -> +List<Entry> 
   (kids, seen2) = pair
   (e <> kids, seen2)
 
-def Beam.child_present(present: Bool, +e: Entry, +seen: +Map<Unit>, cont: +Map<Unit> -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
-  # a board seen before is dropped; a fresh one is kept and marked
+def Beam.child_present(present: Bool, +e: Entry, +key: String, +seen: +Map<Unit>, cont: +Map<Unit> -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+  # a board seen before is dropped; a fresh one is kept and marked,
+  # by the very key it was sought by
   match present:
     case True{}:
       cont(seen)
     case False{}:
-      Beam.child_cons(cont(Map.set(&2, Unit, seen, Key.board_of(e), Unit{})), e)
+      Beam.child_cons(cont(Map.set(&2, Unit, seen, key, Unit{})), e)
 
-def Beam.child_seen(mr: +Map<Unit> & Bool, +e: Entry, +seen: +Map<Unit>, cont: +Map<Unit> -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+def Beam.child_seen(mr: +Map<Unit> & Bool, +e: Entry, +key: String, +seen: +Map<Unit>, cont: +Map<Unit> -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
   # the seen-set's answer about a board: a query changes nothing
   (_, present) = mr
-  Beam.child_present(present, e, seen, cont)
+  Beam.child_present(present, e, key, seen, cont)
 
 def Beam.child_settled(pair: F.Board & +List<F.Move>, +ms: +List<F.Move>, +trail: Trail, +seen: +Map<Unit>, cont: +Map<Unit> -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
-  # the home moves that followed a candidate belong to its line
-  (b3, +more) = pair
-  +e = {Entry{b3, Trail.push_list(more, Trail.push_list(ms, trail)), U32.from_nat(List.length(&2, F.Move, more))} : Entry}
-  Beam.child_seen(Map.has(&2, Unit, seen, Key.board_of(e)), e, seen, cont)
+  # the home moves that followed a candidate belong to its line. The
+  # child's cost and key are read here, once — the sort and the
+  # reseed read them after, never rebuilt
+  (+b3, +more) = pair
+  +autos = {U32.from_nat(List.length(&2, F.Move, more)) : U32}
+  +key = {Key.board(b3) : String}
+  +e = {Entry{b3, Trail.push_list(more, Trail.push_list(ms, trail)), autos, Beam.cost_of(b3, autos), key} : Entry}
+  Beam.child_seen(Map.has(&2, Unit, seen, key), e, key, seen, cont)
 
 def Beam.child_step(got: Maybe<&2, F.Board>, +ms: +List<F.Move>, +trail: Trail, +seen: +Map<Unit>, cont: +Map<Unit> -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
   # one candidate: play it, then the safe home moves; illegal lines
@@ -590,7 +617,7 @@ def Beam.sprout(cands: +List<+List<F.Move>>, +board: F.Board, +trail: Trail, +se
 def Beam.children_fresh(e: Entry, +seen: +Map<Unit>) -> +List<Entry> & +Map<Unit>:
   # every fresh child of one beam entry
   match e:
-    case Entry{+board, +trail, _}:
+    case Entry{+board, +trail, _, _, _}:
       Beam.sprout(Solver.candidates(board), board, trail, seen)
 
 def Beam.join_rest(p2res: +List<Entry> & +Map<Unit>, +kids1: +List<Entry>) -> +List<Entry> & +Map<Unit>:
@@ -603,37 +630,104 @@ def Beam.join_children(p1: +List<Entry> & +Map<Unit>, p2: +Map<Unit> -> +List<En
   (kids1, seen2) = p1
   Beam.join_rest(p2(seen2), kids1)
 
-def Beam.expand_all(entries: +List<Entry>, +seen: +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+def Beam.expand_seq(entries: +List<Entry>, +seen: +Map<Unit>) -> +List<Entry> & +Map<Unit>:
   # every fresh child of every entry, deduped as it is made: the
-  # seen-set threads through the whole level, so a board is never
-  # built into the level twice
+  # seen-set threads through the whole scan, so a board is never
+  # built into it twice. The scan of one chunk
   match entries:
     case Nil{}:
       (Nil{}, seen)
     case e <> es:
       Beam.join_children(Beam.children_fresh(e, seen),
-        seen2 => Beam.expand_all(es, seen2))
+        seen2 => Beam.expand_seq(es, seen2))
 
-# --- Cost, wins, the width --------------------------------------
+# --- The level's halves, in parallel ------------------------------
 
-def Beam.cost_of(b: F.Board, +autos: U32) -> U32:
-  # cards not home, plus unsorted cards, plus used cells, plus the
-  # home moves already made: the reference solvers' estimate
-  match b:
-    case F.Board{cascades, cells, founds}:
-      unhome = (52 - F.Founds.total(founds) : U32)
-      unsorted = F.Piles.unsorted(cascades)
-      used = F.Cells.occupied(cells)
-      ((unhome + unsorted : U32) + (used + autos : U32) : U32)
+def Beam.half_len(entries: +List<Entry>) -> Nat:
+  # where a chunk of entries splits in two
+  Nat.div(List.length(&2, Entry, entries), 2n)
 
-def Beam.cost(e: Entry) -> U32:
-  # a beam entry's estimate
-  match e:
-    case Entry{+board, _, +autos}:
-      Beam.cost_of(board, autos)
+def Beam.merge_done(w: +Map<Unit> & +List<Entry>) -> +List<Entry> & +Map<Unit>:
+  # the walk's end: the kept children turned right, the grown seen
+  (+seen, +acc) = w
+  (List.reverse(&2, Entry, acc), seen)
+
+def Beam.merge_pick(present: Bool, +e: Entry, +seen: +Map<Unit>, +acc: +List<Entry>, more: (+Map<Unit> & +List<Entry>) -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+  # a board the left half never grew is kept, and marked; one it
+  # grew is dropped
+  match present:
+    case True{}:
+      more((seen, acc))
+    case False{}:
+      more((Map.set(&2, Unit, seen, Beam.key_of(e), Unit{}), e <> acc))
+
+def Beam.merge_split(mr: +Map<Unit> & Bool, +e: Entry, +seen: +Map<Unit>, +acc: +List<Entry>, more: (+Map<Unit> & +List<Entry>) -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+  # the seen-set's answer about the right half's child
+  (_, present) = mr
+  Beam.merge_pick(present, e, seen, acc, more)
+
+def Beam.merge_seen(w: +Map<Unit> & +List<Entry>, +e: Entry, +es: +List<Entry>, more: (+Map<Unit> & +List<Entry>) -> +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+  # the world's seen-set asked about one child of the right half
+  (+seen, +acc) = w
+  Beam.merge_split(Map.has(&2, Unit, seen, Beam.key_of(e)), e, seen, acc, more)
+
+def Beam.merge_walk(kids2: +List<Entry>, w: +Map<Unit> & +List<Entry>) -> +List<Entry> & +Map<Unit>:
+  # the right half's children, against the left half's grown seen:
+  # fresh ones kept, the seen-set grown by them. The world — the
+  # seen-set and the kept children, reversed — travels whole. The
+  # recursion is the closure below, on the shorter tail
+  match kids2:
+    case Nil{}:
+      Beam.merge_done(w)
+    case +e <> +es:
+      Beam.merge_seen(w, e, es, w2 => Beam.merge_walk(es, w2))
+
+def Beam.join_halves(walked: +List<Entry> & +Map<Unit>, +kids1: +List<Entry>) -> +List<Entry> & +Map<Unit>:
+  # the left half's children, then the right half's fresh ones, in
+  # order; the walk's grown seen is the level's own
+  (fresh2, grown) = walked
+  (List.append(&2, Entry, kids1, fresh2), grown)
+
+def Beam.merge(r1: +List<Entry> & +Map<Unit>, r2: +List<Entry> & +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+  # two halves of one level, in order: the right half's children
+  # deduped against the left's grown seen — the same boards the one
+  # sequential scan would have shunned, in the same order
+  (kids1, s1) = r1
+  (kids2, _) = r2
+  Beam.join_halves(Beam.merge_walk(kids2, (s1, {Nil{} : +List<Entry>})), kids1)
+
+def Beam.split_depth() -> Nat:
+  # the most halvings the widest beam takes: 512 entries into
+  # 32-entry chunks — 512 / 2^4
+  4n
+
+def Beam.fuel_for(+len: Nat) -> Nat:
+  # the halvings a beam of len entries takes to fall into ~32-entry
+  # chunks: the beam is at most 512 wide, so five answers suffice
+  Bool.pick(Nat, Nat.is_le(len, 32n), 0n,
+    Bool.pick(Nat, Nat.is_le(len, 64n), 1n,
+      Bool.pick(Nat, Nat.is_le(len, 128n), 2n,
+        Bool.pick(Nat, Nat.is_le(len, 256n), 3n, Beam.split_depth()))))
+
+def Beam.expand(+fuel: Nat, +entries: +List<Entry>, +seen: +Map<Unit>) -> +List<Entry> & +Map<Unit>:
+  # the beam's entries, in halves: both halves expand against the
+  # same incoming seen — their work is independent — and their
+  # boards meet only in the ordered merge, which keeps exactly the
+  # children the one sequential scan would have kept. The fuel is
+  # the beam's own width, chosen where the level begins; a chunk
+  # that runs out of it expands sequentially. The recursion is the
+  # parallel call below — every branch of it has less fuel
+  match fuel:
+    case 0n:
+      Beam.expand_seq(entries, seen)
+    case 1n+p:
+      r1 r2 = Beam.expand(p, List.take(&2, Entry, entries, Beam.half_len(entries)), seen) Beam.expand(p, List.drop(&2, Entry, entries, Beam.half_len(entries)), seen)
+      Beam.merge(r1, r2)
+
+# --- Wins, the width ----------------------------------------------
 
 def Beam.le(a: Entry, b: Entry) -> Bool:
-  # cheaper entries first
+  # cheaper entries first — a field read each way
   U32.is_le(Beam.cost(a), Beam.cost(b))
 
 def Beam.won_if(won: Bool, +e: Entry, rest: Unit -> Maybe<&2, Entry>) -> Maybe<&2, Entry>:
@@ -650,7 +744,7 @@ def Beam.find_won(entries: +List<Entry>) -> Maybe<&2, Entry>:
       None{}
     case e <> es:
       match e:
-        case Entry{+board, _, _}:
+        case Entry{+board, _, _, _, _}:
           Beam.won_if(F.Board.is_won(board), e, u => Beam.find_won(es))
 
 def Beam.truncate(sorted: +List<Entry>, +k: Nat) -> +List<Entry>:
@@ -672,12 +766,13 @@ def Beam.width() -> Nat:
 def Beam.reseed(entries: +List<Entry>, seen: +Map<Unit>) -> +Map<Unit>:
   # a level's boards, as the next level's seen-set: the search's
   # memory must stay bounded, so a state can only be shunned for the
-  # level after it appears — the reference solvers' window
+  # level after it appears — the reference solvers' window. The
+  # keys are the entries' own fields
   match entries:
     case Nil{}:
       seen
     case e <> es:
-      Beam.reseed(es, Map.set(&2, Unit, seen, Key.board_of(e), Unit{}))
+      Beam.reseed(es, Map.set(&2, Unit, seen, Beam.key_of(e), Unit{}))
 
 def Beam.advance(+kids: +List<Entry>, level: Nat) -> Search:
   # sort by cost, keep the beam, and seed the next level's seen-set
@@ -689,7 +784,7 @@ def Beam.check(won: Maybe<&2, Entry>, +kids: +List<Entry>, level: Nat) -> Search
   match won:
     case Some{e}:
       match e:
-        case Entry{_, +trail, _}:
+        case Entry{_, +trail, _, _, _}:
           Solved{Trail.finish(trail)}
     case None{}:
       Beam.advance(kids, level)
@@ -699,9 +794,10 @@ def Beam.collect(pair: +List<Entry> & +Map<Unit>, level: Nat) -> Search:
   (+kids, _) = pair
   Beam.check(Beam.find_won(kids), kids, level)
 
-def Beam.level(entries: +List<Entry>, level: Nat, +seen: +Map<Unit>) -> Search:
-  # expand with dedup as built, sort, truncate: one level of the beam
-  Beam.collect(Beam.expand_all(entries, seen), level)
+def Beam.level(+entries: +List<Entry>, level: Nat, +seen: +Map<Unit>) -> Search:
+  # expand in parallel halves — the fuel from the beam's own width —
+  # sort, truncate: one level of the beam
+  Beam.collect(Beam.expand(Beam.fuel_for(List.length(&2, Entry, entries)), entries, seen), level)
 
 def Beam.go(entries: +List<Entry>, level: Nat, +seen: +Map<Unit>) -> Search:
   # out of levels or entries: stuck
@@ -739,10 +835,11 @@ def Beam.tramp(fuel: Nat, m: Search) -> Search:
 # --- The entry --------------------------------------------------
 
 def Solver.begin(autod: F.Board & +List<F.Move>, +levels: Nat) -> Search:
-  # the opening home moves belong to the line
-  (b2, autos) = autod
-  +root = {Entry{b2, Trail.push_list(autos, Start{}), 0} : Entry}
-  Beam.tramp(levels, Beam{root <> {Nil{} : +List<Entry>}, levels, Map.set(&2, Unit, Map.new(&2, Unit), Key.board_of(root), Unit{})})
+  # the opening home moves belong to the line; the root's cost
+  # counts none of them, as it always has
+  (+b2, autos) = autod
+  +root = {Entry{b2, Trail.push_list(autos, Start{}), 0, Beam.cost_of(b2, 0), Key.board(b2)} : Entry}
+  Beam.tramp(levels, Beam{root <> {Nil{} : +List<Entry>}, levels, Map.set(&2, Unit, Map.new(&2, Unit), Beam.key_of(root), Unit{})})
 
 def Solver.solve(levels: Nat, board: F.Board) -> Search:
   # beam-search a board with a level budget

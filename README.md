@@ -66,10 +66,20 @@ candidate move the safe home moves play themselves, so the line it
 prints only needs the interesting moves; run moves (supermoves) are
 candidates too, expanded into the single moves the rules take. Each
 level keeps the best 512 boards by cost — cards not home, plus
-unsorted cards, plus used cells, plus the home moves already made —
-and a state is only visited once per level window. A game number
-takes about a minute; the answer is verified against the rules
-before it is printed (`verified: True` on stderr).
+unsorted cards, plus used cells, plus the home moves already made,
+each read once where a child is born — and a state is only visited
+once per level window. The level's halves expand against the same
+window in parallel and merge in order, so the answer is the one the
+sequential scan would have given; the answer is verified against
+the rules before it is printed (`verified: True` on stderr).
+
+Interpreted, a game number takes about a minute; the parallel
+calls engage in a compiled binary, which is also much faster on
+one core:
+
+```bash
+bend solver.bend -o solver && ./solver 1     # ~10s and ~40MB
+```
 
 Pipe the line straight into the terminal game and watch it win:
 
