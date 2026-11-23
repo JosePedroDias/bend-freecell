@@ -79,6 +79,20 @@ def Suit.show(s: Suit) -> String:
     case Clubs{}:
       "C"
 
+def Suit.is_eq(a: Suit, b: Suit) -> Bool:
+  # the same suit
+  match a b:
+    case Spades{} Spades{}:
+      True{}
+    case Hearts{} Hearts{}:
+      True{}
+    case Diamonds{} Diamonds{}:
+      True{}
+    case Clubs{} Clubs{}:
+      True{}
+    case _ _:
+      False{}
+
 # --- Ranks ------------------------------------------------------
 
 type Rank is Data:
@@ -163,6 +177,38 @@ def Rank.is_one_below(low: Rank, high: Rank) -> Bool:
   # low sits directly under high in rank
   U32.is_eq((Rank.to_u32(low) + 1 : U32), Rank.to_u32(high))
 
+def Rank.is_eq(a: Rank, b: Rank) -> Bool:
+  # the same rank
+  match a b:
+    case Ace{} Ace{}:
+      True{}
+    case Two{} Two{}:
+      True{}
+    case Three{} Three{}:
+      True{}
+    case Four{} Four{}:
+      True{}
+    case Five{} Five{}:
+      True{}
+    case Six{} Six{}:
+      True{}
+    case Seven{} Seven{}:
+      True{}
+    case Eight{} Eight{}:
+      True{}
+    case Nine{} Nine{}:
+      True{}
+    case Ten{} Ten{}:
+      True{}
+    case Jack{} Jack{}:
+      True{}
+    case Queen{} Queen{}:
+      True{}
+    case King{} King{}:
+      True{}
+    case _ _:
+      False{}
+
 # --- Cards ------------------------------------------------------
 
 type Card is Data:
@@ -179,6 +225,12 @@ def Card.suit_idx(c: Card) -> U32:
   match c:
     case Card{suit, _}:
       Suit.to_u32(suit)
+
+def Card.is_eq(a: Card, b: Card) -> Bool:
+  # the same suit and rank
+  match a b:
+    case Card{suit, rank} Card{suit2, rank2}:
+      Suit.is_eq(suit, suit2) && Rank.is_eq(rank, rank2)
 
 def Card.can_stack_on(card: Card, onto: Card) -> Bool:
   # the cascade rule: card may rest on onto — exactly one rank
@@ -281,6 +333,58 @@ def Piles.card_count(piles: +List<+List<Card>>) -> U32:
     case p <> ps:
       (U32.from_nat(List.length(&2, Card, p)) + Piles.card_count(ps) : U32)
 
+def Pile.is_eq(a: +List<Card>, b: +List<Card>) -> Bool:
+  # the same cards in the same order
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case h <> t h2 <> t2:
+      Card.is_eq(h, h2) && Pile.is_eq(t, t2)
+    case _ _:
+      False{}
+
+def Piles.is_eq(a: +List<+List<Card>>, b: +List<+List<Card>>) -> Bool:
+  # the same cascades
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case p <> ps p2 <> ps2:
+      Pile.is_eq(p, p2) && Piles.is_eq(ps, ps2)
+    case _ _:
+      False{}
+
+def Pile.run_if(ok: Bool, +acc: U32, k: Unit -> U32) -> U32:
+  # a run continues through k, or stops at acc cards
+  match ok:
+    case True{}:
+      k(Unit{})
+    case False{}:
+      acc
+
+def Pile.run_go(rest: +List<Card>, top: Card, +acc: U32) -> U32:
+  # the run counts acc cards so far, its newest on top
+  match rest:
+    case Nil{}:
+      acc
+    case +next <> more:
+      Pile.run_if(Card.can_stack_on(top, next), acc, u => Pile.run_go(more, next, (acc + 1 : U32)))
+
+def Pile.run_len(p: +List<Card>) -> U32:
+  # how many cards from the top form a descending, alternating run
+  match p:
+    case Nil{}:
+      0
+    case top <> rest:
+      Pile.run_go(rest, top, 1)
+
+def Piles.unsorted(piles: +List<+List<Card>>) -> U32:
+  # how many cards sit outside their column's top run: the disorder
+  match piles:
+    case Nil{}:
+      0
+    case +p <> ps:
+      (U32.sub(U32.from_nat(List.length(&2, Card, p)), Pile.run_len(p)) + Piles.unsorted(ps) : U32)
+
 # --- Free cells -------------------------------------------------
 
 def Cells.get(cells: +List<+Maybe<Card>>, i: U32) -> Maybe<&2, +Maybe<Card>>:
@@ -359,6 +463,26 @@ def Cells.occupied(cells: +List<+Maybe<Card>>) -> U32:
         case None{}:
           Cells.occupied(cs)
 
+def Cells.slot_eq(a: +Maybe<Card>, b: +Maybe<Card>) -> Bool:
+  # the same card, or the same emptiness
+  match a b:
+    case None{} None{}:
+      True{}
+    case Some{c} Some{c2}:
+      Card.is_eq(c, c2)
+    case _ _:
+      False{}
+
+def Cells.is_eq(a: +List<+Maybe<Card>>, b: +List<+Maybe<Card>>) -> Bool:
+  # the same cells
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case c <> cs c2 <> cs2:
+      Cells.slot_eq(c, c2) && Cells.is_eq(cs, cs2)
+    case _ _:
+      False{}
+
 # --- Foundations ------------------------------------------------
 # A foundation is a count: the spade foundation with count n holds
 # the spade Ace through the spade of rank n.
@@ -366,6 +490,10 @@ def Cells.occupied(cells: +List<+Maybe<Card>>) -> U32:
 def Founds.get(founds: +List<U32>, i: U32) -> Maybe<&2, U32>:
   # the count of foundation i, if it exists
   List.get(&2, U32, founds, U32.to_nat(i))
+
+def Founds.count(founds: +List<U32>, i: U32) -> U32:
+  # how deep foundation i runs, 0 when it is missing
+  Maybe.default(&2, U32, Founds.get(founds, i), 0)
 
 def Founds.next_ok(got: Maybe<&2, U32>, rank: Rank) -> Bool:
   # the foundation rule: a foundation that holds n cards takes the
@@ -411,6 +539,16 @@ def Founds.total(founds: +List<U32>) -> U32:
       0
     case n <> ns:
       (n + Founds.total(ns) : U32)
+
+def Founds.is_eq(a: +List<U32>, b: +List<U32>) -> Bool:
+  # the same foundations
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case n <> ns n2 <> ns2:
+      U32.is_eq(n, n2) && Founds.is_eq(ns, ns2)
+    case _ _:
+      False{}
 
 # --- The board --------------------------------------------------
 
@@ -592,6 +730,12 @@ def Board.card_count(b: Board) -> U32:
     case Board{cascades, cells, founds}:
       p c f = Piles.card_count(cascades) Cells.occupied(cells) Founds.total(founds)
       ((p + c : U32) + f : U32)
+
+def Board.is_eq(a: Board, b: Board) -> Bool:
+  # the same board: cascades, cells and foundations
+  match a b:
+    case Board{cascades, cells, founds} Board{cascades2, cells2, founds2}:
+      Piles.is_eq(cascades, cascades2) && Cells.is_eq(cells, cells2) && Founds.is_eq(founds, founds2)
 
 # --- Text, for debugging and the terminal game -----------------
 
