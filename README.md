@@ -20,10 +20,11 @@ fish_add_path $HOME/.bend/bin
 
 ## Usage
 
-Right now the repo holds goals 1-4: the abstract rules in
+Right now the repo holds goals 1-5: the abstract rules in
 `freecell.bend` (including the classic Microsoft deals), the
 law/proof gate from `LAWS.bend` and `PROOF.bend`, the terminal
-game in `terminal-game.bend`, and the solver in `solver.bend`.
+game in `terminal-game.bend`, the solver in `solver.bend`, and
+the authoritative server in `server.bend`.
 
 ### Play the terminal game
 
@@ -78,6 +79,43 @@ bend solver.bend 1 2>/dev/null | bend terminal-game.bend 1
 
 `python-reference/` holds the Python prototype the policy was
 validated against, kept for curiosity.
+
+### Play over HTTP
+
+```bash
+bend server.bend            # an authoritative server on :8080
+bend server.bend 9090        # another port
+```
+
+The state lives in the server and nowhere else: every move is
+checked against the rules before it is believed, and several
+games can be open at once, each named by its number. Requests
+speak HTTP/1.0 and each connection carries one request:
+
+```bash
+curl localhost:8080/1               # deal game 1, see it as JSON
+curl localhost:8080/1 -d "1 a"      # a move, the terminal game's words
+curl localhost:8080/1 -d "u"        # take it back
+curl localhost:8080/1 -d "h"        # the commands, as JSON
+curl localhost:8080/games            # the open games
+```
+
+Answers are JSON: the whole board — `cells`, `foundations` (suit
+by suit), `cascades` (each column bottom card first) and `won` —
+or `{"error": ...}` with a 4xx when the request or the move
+cannot be honored. The commands are the terminal game's own
+two-word moves, so a whole winning line can be piped in move by
+move:
+
+```bash
+bend solver.bend 1 2>/dev/null |
+  while read a b; do curl -s localhost:8080/1 -d "$a $b" > /dev/null; done
+curl -s localhost:8080/1            # "won": true
+```
+
+One connection is served at a time — freecell is a turn-based
+game — and the server says so on stderr when it starts, after
+running its own self check against the rules.
 
 ### Run the rules demo
 

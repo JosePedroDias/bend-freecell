@@ -27,3 +27,6 @@ def Laws.ms_deal_11982_holds_all_cards():
 
 def Laws.ms_solver_solves_game_1():
   {==}
+
+def Laws.server_governs_its_games():
+  {==}

@@ -1,6 +1,7 @@
 import Base
 import ./freecell.bend as FreeCell
 import ./solver.bend as Solver
+import ./server.bend as Server
 
 # ===================================================================
 # The laws of freecell: the claims the game rules must answer to.
@@ -37,3 +38,12 @@ law ms_deal_11982_holds_all_cards:
 # a minute.
 law ms_solver_solves_game_1:
   {Solver.Solve.verified(1) == True{} : Bool}
+
+# Goal 5 seeds this: the house is the only authority over its
+# games — asked for game 1 it deals it; asked to move column 1 to
+# cell a it takes the move, the cell being empty; asked the same
+# move again it refuses it, the rules refusing; asked to undo it
+# returns the very deal. The witness runs the pure router, not the
+# sockets, so this law costs the gate nothing.
+law server_governs_its_games:
+  {Server.House.self_check() == True{} : Bool}
