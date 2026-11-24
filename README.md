@@ -197,3 +197,5 @@ bend --help         # all commands
 
 `OPTIMIZING.md` collects what the solver's speed work taught
 about optimizing Bend 2 — the measured levers, and the traps.
+`how-to-use-bend.md` is the strategy question: code in Bend and
+ship the checked artifact, or validate in Bend and port.
