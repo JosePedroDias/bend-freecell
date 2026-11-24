@@ -10,21 +10,32 @@ you can make it executable in the fish shell by running
 fish_add_path $HOME/.bend/bin
 ```
 
-## Goals
+## What this is
 
-1. I want to encode the abstract rules of the freecell card game in bend.
-2. I want to write the laws that enforce those the game rules hold
-3. I want to create a terminal freecell game with basic ascii representation
-4. I want to create a freecell solver
-5. I want to create an HTTP authoritative server that drives an abstract game of freecell (or multiple ones?)
+Freecell in Bend 2, end to end: the abstract rules and the
+classic Microsoft deals in `freecell.bend`, the law/proof gate
+in `LAWS.bend` and `PROOF.bend`, a terminal game in
+`terminal-game.bend`, a beam-search solver in `solver.bend`, and
+an authoritative HTTP server in `server.bend` — one language,
+one rule book, every move in every face of the game judged by
+the same defs. The five goals the repo set out with are all
+built.
+
+## The documents
+
+- [OPTIMIZING.md](OPTIMIZING.md) — what the solver's speed work
+  taught about optimizing Bend 2: the measured levers, and the
+  traps
+- [how-to-use-bend.md](how-to-use-bend.md) — the strategy
+  question: code in Bend and ship the checked artifact, or
+  validate in Bend and port
+- [python-reference/README.md](python-reference/README.md) — the
+  Python prototype's story, and the benchmark that compared the
+  two solvers
+- [AGENTS.md](AGENTS.md) — the working rules this repo was built
+  under
 
 ## Usage
-
-Right now the repo holds goals 1-5: the abstract rules in
-`freecell.bend` (including the classic Microsoft deals), the
-law/proof gate from `LAWS.bend` and `PROOF.bend`, the terminal
-game in `terminal-game.bend`, the solver in `solver.bend`, and
-the authoritative server in `server.bend`.
 
 ### Play the terminal game
 
@@ -90,7 +101,8 @@ bend solver.bend 1 2>/dev/null | bend terminal-game.bend 1
 ```
 
 `python-reference/` holds the Python prototype the policy was
-validated against, kept for curiosity.
+validated against, kept for curiosity — [its README](python-reference/README.md)
+tells the story.
 
 ### Play over HTTP
 
@@ -194,8 +206,3 @@ bend guide          # the language guide
 bend base           # the Base library (bend base List for one module)
 bend --help         # all commands
 ```
-
-`OPTIMIZING.md` collects what the solver's speed work taught
-about optimizing Bend 2 — the measured levers, and the traps.
-`how-to-use-bend.md` is the strategy question: code in Bend and
-ship the checked artifact, or validate in Bend and port.
