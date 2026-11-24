@@ -14,7 +14,7 @@ by accident and could be compared.
 ## The design closes the loop only one way
 
 A law is a statement about a particular program. Ours —
-`ms_solver_solves_game_1` — says something about `solver.bend`
+`server_governs_its_games` — says something about `server.bend`
 and about nothing else. The moment you port, your validation is
 a true statement about a program you are not shipping.
 
