@@ -194,3 +194,6 @@ bend guide          # the language guide
 bend base           # the Base library (bend base List for one module)
 bend --help         # all commands
 ```
+
+`OPTIMIZING.md` collects what the solver's speed work taught
+about optimizing Bend 2 — the measured levers, and the traps.
