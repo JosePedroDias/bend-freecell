@@ -65,19 +65,23 @@ type Search is Data:
 
 # --- Board keys, for the seen-set -------------------------------
 
-def Key.rank_ch(r: F.Rank) -> Char:
-  # a rank as one character: 'B' is the Ace, 'N' the King
-  Char.from_u32(U32.add(65, F.Rank.to_u32(r)))
-
-def Key.suit_ch(s: F.Suit) -> Char:
-  # a suit as one character, '@' through 'C'
-  Char.from_u32(U32.add(64, F.Suit.to_u32(s)))
-
-def Key.card_put(c: F.Card, +rest: String) -> String:
-  # a card as two characters in front of the rest of a key
+def Key.card_code(c: F.Card) -> U32:
+  # a card as one number: 1..52
   match c:
     case F.Card{suit, rank}:
-      SCon{Key.suit_ch(suit), SCon{Key.rank_ch(rank), rest}}
+      (1 + F.Suit.to_u32(suit) * 13 + (F.Rank.to_u32(rank) - 1) : U32)
+
+def Key.card_ch(c: F.Card) -> Char:
+  # a card as one character: 'B' through 'u', one per card — the
+  # same alphabet the cells use. A whole board's key is 68
+  # characters, and the sections are fixed where it matters: the
+  # foundations are always the last four, the cells the four
+  # before them, so the key reads back uniquely
+  Char.from_u32(U32.add(65, Key.card_code(c)))
+
+def Key.card_put(c: F.Card, +rest: String) -> String:
+  # a card as one character in front of the rest of a key
+  SCon{Key.card_ch(c), rest}
 
 def Key.pile(p: +List<F.Card>, +rest: String) -> String:
   # a pile's cards, top first, behind a separator
@@ -93,12 +97,6 @@ def Key.piles(piles: +List<+List<F.Card>>, +rest: String) -> String:
       rest
     case p <> ps:
       Key.piles(ps, Key.pile(p, rest))
-
-def Key.card_code(c: F.Card) -> U32:
-  # a card as one number: 1..52
-  match c:
-    case F.Card{suit, rank}:
-      (1 + F.Suit.to_u32(suit) * 13 + (F.Rank.to_u32(rank) - 1) : U32)
 
 def Key.cell_code(c: +Maybe<F.Card>) -> U32:
   # a cell as one number: 0 empty, 1..52 the card
@@ -758,7 +756,8 @@ def Beam.truncate(sorted: +List<Entry>, +k: Nat) -> +List<Entry>:
       e <> Beam.truncate(es, q)
 
 def Beam.width() -> Nat:
-  # how many states a level keeps
+  # how many states a level keeps: 256 misses game 12, 1024 doubles
+  # the time for the same answers — 512 is the measured middle
   512n
 
 # --- One level --------------------------------------------------

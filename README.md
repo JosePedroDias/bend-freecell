@@ -68,7 +68,9 @@ candidates too, expanded into the single moves the rules take. Each
 level keeps the best 512 boards by cost — cards not home, plus
 unsorted cards, plus used cells, plus the home moves already made,
 each read once where a child is born — and a state is only visited
-once per level window. The level's halves expand against the same
+once per level window. 256-wide beams miss game 12 and 1024-wide
+ones double the time for the same answers, so 512 is the measured
+middle. The level's halves expand against the same
 window in parallel and merge in order, so the answer is the one the
 sequential scan would have given; the answer is verified against
 the rules before it is printed (`verified: True` on stderr).
