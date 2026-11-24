@@ -26,7 +26,7 @@ built.
 - [OPTIMIZING.md](OPTIMIZING.md) — what the solver's speed work
   taught about optimizing Bend 2: the measured levers, and the
   traps
-- [how-to-use-bend.md](how-to-use-bend.md) — the strategy
+- [HOW-TO-USE-BEND.md](HOW-TO-USE-BEND.md) — the strategy
   question: code in Bend and ship the checked artifact, or
   validate in Bend and port
 - [python-reference/README.md](python-reference/README.md) — the
