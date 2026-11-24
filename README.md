@@ -30,8 +30,10 @@ built.
   question: code in Bend and ship the checked artifact, or
   validate in Bend and port
 - [python-reference/README.md](python-reference/README.md) — the
-  Python prototype's story, and the benchmark that compared the
-  two solvers
+  Python prototype that confirmed the Bend solver was being
+  written correctly: the deals, then the candidate moves, were
+  diffed board by board, and the diff caught real bugs. Kept for
+  curiosity, with the benchmark that compared the two
 - [AGENTS.md](AGENTS.md) — the working rules this repo was built
   under
 
@@ -100,9 +102,11 @@ Pipe the line straight into the terminal game and watch it win:
 bend solver.bend 1 2>/dev/null | bend terminal-game.bend 1
 ```
 
-`python-reference/` holds the Python prototype the policy was
-validated against, kept for curiosity — [its README](python-reference/README.md)
-tells the story.
+`python-reference/` holds the Python prototype the Bend solver
+was checked against while it was written — the two were diffed
+board by board, and the diff caught real Bend bugs. It stays for
+curiosity; [its README](python-reference/README.md) tells the
+story.
 
 ### Play over HTTP
 

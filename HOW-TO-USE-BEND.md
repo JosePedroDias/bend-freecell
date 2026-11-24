@@ -75,10 +75,11 @@ Bend is the source of truth wherever its effects can reach. The
 server went Bend-only because sockets, files and processes are
 native effects, so the whole thing stays under the laws —
 `server_governs_its_games` covers exactly what ships. The Python
-solver is kept as a curiosity, validated against Bend rather
-than the reverse. Where a port is forced: differential testing,
-continuously, and the laws live with the artifact that must keep
-them.
+solver stays as a curiosity: it validated the Bend while the Bend
+was being written — deals and candidate moves, diffed board by
+board — and the laws have since taken over the duty. Where a
+port is forced: differential testing, continuously, and the laws
+live with the artifact that must keep them.
 
 ## Proving costs more than running
 
