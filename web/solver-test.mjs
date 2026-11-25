@@ -79,10 +79,23 @@ try {
   const same = JSON.stringify(a) === JSON.stringify(b);
   console.log("line lengths:", a.length, b.length);
   console.log("the lines agree, move for move:", same);
+
+  // the hint, checked for judgment: a couple of levels deep, the
+  // beam's chosen opener must be the winning line's own — the
+  // shallow search and the whole solve open alike on game 1
+  const opener = W["Web.opener"], hintLevels = W["Web.hint_levels"];
+  let h = open(board, hintLevels());
+  while (h.$ === "Beam" && h.level > 0) h = step(h);
+  const picked = opener(h);
+  const hintOpens = picked.$ === "Some" ? moveWord(picked.value) : "(nothing)";
+  const agree = hintOpens === a[0];
+  console.log("the hint opens with:", hintOpens, "— the line's own opener:", a[0], "— agree:", agree);
+
+  const ok = same && agree;
   if (!same && a.length === b.length) {
     console.log("first divergence:", a.findIndex((w, i) => w !== b[i]));
   }
-  process.exit(same ? 0 : 1);
+  process.exit(ok ? 0 : 1);
 } finally {
   rmSync(dir, {recursive: true, force: true});
 }

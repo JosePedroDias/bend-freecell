@@ -186,10 +186,11 @@ ok("search ends within its budget", fc.game.solving === false);
 ok("small budget says no solution", doc.getElementById("status").textContent.includes("no solution"));
 ok("progress bar hidden again", !doc.getElementById("solvebar").classList.contains("on"));
 
-// the hint: the search's plan, one move of it. Four cards short of
-// a win — the kings and queens of spades and hearts in one column,
-// nothing autoplay-safe at the top — every plan opens by moving
-// the king of spades, and the autoplay behind it finishes the game
+// the hint: the search's best single move, a couple of levels
+// deep. Four cards short of a win — the kings and queens of spades
+// and hearts in one column, nothing autoplay-safe at the top —
+// every line opens by moving the king of spades, and the autoplay
+// behind it finishes the game
 {
   const toJs = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
   const head = (col) => { const pile = toJs(toJs(fc.game.board.cascades)[col]); return pile.length ? pile[0].suit.$ + "-" + pile[0].rank.$ : null; };
@@ -201,11 +202,20 @@ ok("progress bar hidden again", !doc.getElementById("solvebar").classList.contai
   fc.render(); reset();
   await fc.hint();
   ok("the hint spends one move", fc.game.moves === 1);
-  ok("the plan opens by moving the king of spades", head(0) === "Spades-Queen");
+  ok("the search opens by moving the king of spades", head(0) === "Spades-Queen");
   ok("the hint says its move in words",
      doc.getElementById("status").textContent.includes("a hint: park the king of spades") ||
      doc.getElementById("status").textContent.includes("a hint: move the king of spades"));
-  ok("the hint names the plan", doc.getElementById("status").textContent.includes("one move of the plan"));
+  ok("the hint borrows no progress bar", !doc.getElementById("solvebar").classList.contains("on"));
+  // and on a fresh deal, the hint answers at once — one move, no
+  // progress bar, said in words. (The judgment itself — that the
+  // shallow opener matches the whole solve's — is pinned in
+  // solver-test.mjs, the deep gate)
+  await fc.newGame(1);
+  await fc.hint();
+  ok("a fresh deal hints one move",
+     fc.game.moves === 1 && doc.getElementById("status").textContent.includes("a hint:"));
+  ok("the hint is quick about it", !doc.getElementById("solvebar").classList.contains("on"));
 }
 
 // a redeal settles every card into its column's paint order

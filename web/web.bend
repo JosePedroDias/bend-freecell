@@ -71,6 +71,16 @@ def Web.deep(levels: Nat, b: F.Board) -> S.Search:
   # path against it
   S.Solver.solve(levels, b)
 
+def Web.hint_levels() -> Nat:
+  # how deep the hint looks — the search's own answer, under its
+  # page name, so the page and its tests keep their key
+  S.Solver.hint_levels()
+
+def Web.opener(m: S.Search) -> Maybe<&2, F.Move>:
+  # the move a search's answer opens with — the hint's pick, in
+  # the page's own words
+  S.Solver.opener(m)
+
 def Web.move_word(m: F.Move) -> String:
   # a move in the words the terminal game takes, for reading a
   # winning line
@@ -205,6 +215,25 @@ def Web.beam_left(m: S.Search, k: Nat) -> IO(Unit):
 
 # --- The self-check ------------------------------------------------
 
+def Web.hint_col(got: Maybe<&2, F.Move>) -> Bool:
+  # the hint's move comes off the first column — the king of
+  # spades, every line's opener on the witness
+  match got:
+    case Some{F.CascadeToCell{+col, _}}:
+      U32.is_eq(col, 0)
+    case Some{F.CascadeToCascade{+col, _}}:
+      U32.is_eq(col, 0)
+    case _:
+      False{}
+
+def Web.hint_none(got: Maybe<&2, F.Move>) -> Bool:
+  # nothing suggests itself
+  match got:
+    case None{}:
+      True{}
+    case _:
+      False{}
+
 def main() -> IO(Unit):
   do IO<Unit>:
     +b : F.Board = F.Board.deal_ms(1)
@@ -248,6 +277,13 @@ def main() -> IO(Unit):
       "three cards should not fit two free cells")
     Web.expect(Bool.not(P.Play.is_some_super(Web.cellsmove(parked, 0, 1, 2))),
       "a cell that holds a card should start no parking")
+    # the hint: a couple of levels deep, the witness opens by
+    # moving the king of spades; an empty board suggests nothing
+    +kings : F.Board = S.Solver.hint_witness()
+    Web.expect(Web.hint_col(S.Solver.opener(S.Solver.begin(S.Solver.autoplay(64n, kings), S.Solver.hint_levels()))),
+      "the hint should open by moving the king of spades")
+    Web.expect(Web.hint_none(S.Solver.opener(S.Solver.begin(S.Solver.autoplay(64n, F.Board.empty()), S.Solver.hint_levels()))),
+      "an empty board should hint nothing")
     # the foundations are a home, not a trap: the ace of spades
     # comes back down onto an empty column, and an empty foundation
     # gives nothing back

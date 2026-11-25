@@ -502,8 +502,8 @@ try {
       return {moves: fc.game.moves, head0: col0.length ? col0[0].suit.$ + "-" + col0[0].rank.$ : null,
               status: document.getElementById("status").textContent};
     });
-    check("the hint played one move of the plan",
-          hinted.moves === 1 && hinted.status.includes("a hint:") && hinted.status.includes("one move of the plan"));
+    check("the hint played one move of the search",
+          hinted.moves === 1 && hinted.status.includes("a hint:"));
     check("the plan moved the king of spades", hinted.head0 === "Spades-Queen");
   }
 

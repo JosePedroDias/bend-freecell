@@ -852,6 +852,53 @@ def Solver.solve(levels: Nat, board: F.Board) -> Search:
   # beam-search a board with a level budget
   Solver.begin(Solver.autoplay(64n, board), levels)
 
+# --- The hint: a shallow search's opener ---------------------------
+
+def Solver.hint_levels() -> Nat:
+  # how deep the hint looks: a couple of levels of the beam, not
+  # the whole solve — deep enough to see past a move's face, at a
+  # fraction of the search's cost
+  3n
+
+def Solver.entry_opener(e: Entry) -> Maybe<&2, F.Move>:
+  # an entry's opening move: the oldest in its trail, the first it
+  # would play
+  match e:
+    case Entry{_, +trail, _, _, _}:
+      List.head(&2, F.Move, Trail.finish(trail))
+
+def Solver.head_opener(got: Maybe<&2, Entry>) -> Maybe<&2, F.Move>:
+  # the beam's best entry, asked for its opener
+  match got:
+    case Some{+e}:
+      Solver.entry_opener(e)
+    case None{}:
+      None{}
+
+def Solver.opener(m: Search) -> Maybe<&2, F.Move>:
+  # the move a search's answer opens with: the winning line's
+  # first move when it solved, the best entry's when it still
+  # beams, nothing when it is stuck
+  match m:
+    case Solved{+line}:
+      List.head(&2, F.Move, line)
+    case Beam{+entries, _, _}:
+      Solver.head_opener(List.head(&2, Entry, entries))
+    case Stuck{}:
+      None{}
+
+def Solver.hint_witness() -> F.Board:
+  # four cards short of a win: the kings and queens of spades and
+  # hearts in one column over full club and diamond foundations —
+  # nothing autoplay-safe at the top, so every line opens by
+  # moving the king of spades
+  +empty : +List<F.Card> = {Nil{} : +List<F.Card>}
+  F.Board{
+    [F.Card{F.Spades{}, F.King{}} <> (F.Card{F.Spades{}, F.Queen{}} <> (F.Card{F.Hearts{}, F.King{}} <> (F.Card{F.Hearts{}, F.Queen{}} <> empty))),
+     empty, empty, empty, empty, empty, empty, empty],
+    [None{}, None{}, None{}, None{}],
+    [11, 11, 13, 13]}
+
 # --- The report -------------------------------------------------
 
 def Solve.col_word(n: U32) -> String:

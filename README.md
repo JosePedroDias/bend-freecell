@@ -67,10 +67,10 @@ them, the page dims them, and a card in hand is always fully lit.
 and `Redo` walk the history, `Safe` plays every safe home move at
 once, and `Solve` beam-searches for a winning line — one level
 per beat, with a progress bar, so the page never freezes — then
-offers to play the line move by move. `Hint` (or `t`) runs the
-same search from the board as it stands and plays one move of
-the plan it finds, said in words — a nudge, one step closer to
-the win. The clock starts with the
+offers to play the line move by move. `Hint` (or `t`) asks the
+search for its best single move — a couple of levels of the
+beam, a fraction of the whole solve's cost — and plays it at
+once, said in words. The clock starts with the
 deal; `Pause` (or `p`) holds it and hides the cards, so a break
 is not on the record. The page opens on a random
 solvable game, and so does `New` (the classic range, 11982
@@ -92,7 +92,7 @@ the built artifact into jsdom and plays it: renders all 52 cards,
 has the rules refuse an illegal move and take a legal one, walks
 undo and redo, sends a safe ace home, wins a crafted endgame to see
 the banner, opens a search within a small budget, asks the hint
-for one move of its plan on a crafted endgame, checks every
+for its move on a crafted endgame and a fresh deal, checks every
 column's paint order (including a card that lands exactly where it
 already was), checks the darkening of the buried noise, and checks
 the deal box and the address name the game. It is the cheap gate
@@ -109,15 +109,16 @@ It drives the built page through the three ways a card moves —
 click-then-click, undo, drag-and-drop — and samples the moving
 card's computed transform frame by frame; a check passes only when
 the card took intermediate positions between its slots. It also
-clicks the hint button on a crafted endgame and watches one move
-of the plan land. It skips,
+clicks the hint button on a crafted endgame and watches the
+hinted move land. It skips,
 with exit 0, on a machine with no browser to drive.
 
 The search the page drives — `Solver.first` stepped by `Beam.step`
 — is a port of the checked search in
 [HOW-TO-USE-BEND.md](HOW-TO-USE-BEND.md)'s sense, so it carries the
 differential test that document asks of a port: same board into
-both paths, same winning line out.
+both paths, same winning line out — and the hint, a couple of
+levels deep, must open with the line's own first move.
 
 ```bash
 node web/solver-test.mjs   # ~40s: the stepped line == the one-shot line
