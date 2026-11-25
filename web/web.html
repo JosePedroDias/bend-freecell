@@ -217,6 +217,7 @@
 
 <footer>
   drag a card, or click a card then its destination · double-click sends a card home ·
+  a foundation's top card can be pulled back down ·
   <b>n</b> new · <b>u</b> undo · <b>r</b> redo · <b>s</b> safe moves · <b>h</b> solve ·
   <b>p</b> pause
 </footer>
@@ -226,10 +227,10 @@
 // The web game: SVG face on the compiled bend rules.
 // =================================================================
 // Every game decision — the deal, the legality of a move, the
-// board it produces, the win, the safe home moves, the search —
-// is a call into the bundled module: ./web.bend, whose Web.* defs
-// are the whole vocabulary. This file only draws the answers and
-// reads the clicks.
+// board it produces, the win, the safe home moves, the pull from a
+// foundation, the search — is a call into the bundled module:
+// ./web.bend, whose Web.* defs are the whole vocabulary. This file
+// only draws the answers and reads the clicks.
 import W from "./web.bend";
 
 const F = {
@@ -266,13 +267,14 @@ const cardOf = (suitIdx, rIdx) =>
 const keyOf = (c) => c.suit.$ + "-" + c.rank.$;
 const toArr = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
 
-// the five moves, as bend values
+// the six moves, as bend values
 const M = {
   cascadeToCell:       (col, cell) => ({$: "CascadeToCell", col, cell}),
   cascadeToCascade:   (col, col2) => ({$: "CascadeToCascade", col, col2}),
   cascadeToFoundation: (col)      => ({$: "CascadeToFoundation", col}),
   cellToCascade:       (cell, col) => ({$: "CellToCascade", cell, col}),
   cellToFoundation:    (cell)      => ({$: "CellToFoundation", cell}),
+  foundationToCascade: (found, col) => ({$: "FoundationToCascade", found, col}),
 };
 
 // --- the game state (the board itself is a bend value) -----------
@@ -283,7 +285,7 @@ const game = {
   past: [],      // undo stack: {board, n} — n moves one undo takes back
   future: [],    // redo stack
   moves: 0,
-  selected: null, // {kind: "cascade"|"cell", idx}
+  selected: null, // {kind: "cascade"|"cell"|"foundation", idx}
   solving: false,
   cancelSolve: false,
   playing: false,
@@ -440,7 +442,8 @@ function placements(b) {
 
 // where a card may be picked up from: the working card or a cell —
 // or any card of a column's rising run, which a supermove carries
-// together with everything beneath it, down to the working card
+// together with everything beneath it, down to the working card —
+// or the top card of a foundation, which the pull brings back down
 function movableOf(b, key) {
   const piles = toArr(b.cascades);
   for (let i = 0; i < piles.length; i++) {
@@ -453,6 +456,10 @@ function movableOf(b, key) {
   const cells = toArr(b.cells);
   for (let i = 0; i < cells.length; i++) {
     if (cells[i].$ === "Some" && keyOf(cells[i].value) === key) return {kind: "cell", idx: i, upto: 0};
+  }
+  const founds = toArr(b.founds);
+  for (let i = 0; i < founds.length; i++) {
+    if (founds[i] > 0 && keyOf(cardOf(i, founds[i] - 1)) === key) return {kind: "foundation", idx: i, upto: 0};
   }
   return null;
 }
@@ -536,6 +543,9 @@ function markSelected(src) {
   if (src.kind === "cascade") {
     const pile = toArr(toArr(game.board.cascades)[src.idx] || {$: "Nil"});
     for (let j = 0; j <= src.upto; j++) keys.add(keyOf(pile[j]));
+  } else if (src.kind === "foundation") {
+    const n = +toArr(game.board.founds)[src.idx] || 0;
+    if (n > 0) keys.add(keyOf(cardOf(src.idx, n - 1)));
   } else {
     keys.add(keyOf(toArr(game.board.cells)[src.idx].value));
   }
@@ -547,15 +557,19 @@ function markSelected(src) {
 const canMove = (m) => F.canMove(game.board, m) === true; // a bend Bool is a native boolean here
 
 // the move a source and a slot ask for, or null when the rules
-// would never allow the pair (a cell onto a cell, say)
+// would never allow the pair (a cell onto a cell, a home card into
+// a cell, say)
 function moveFor(src, slot) {
   if (src.kind === "cascade") {
     if (slot.kind === "cell") return M.cascadeToCell(src.idx, slot.idx);
     if (slot.kind === "cascade") return M.cascadeToCascade(src.idx, slot.idx);
     if (slot.kind === "foundation") return M.cascadeToFoundation(src.idx);
-  } else {
+  } else if (src.kind === "cell") {
     if (slot.kind === "cascade") return M.cellToCascade(src.idx, slot.idx);
     if (slot.kind === "foundation") return M.cellToFoundation(src.idx);
+  } else if (src.kind === "foundation") {
+    // the pull: a home card comes back down, onto a column only
+    if (slot.kind === "cascade") return M.foundationToCascade(src.idx, slot.idx);
   }
   return null;
 }
@@ -574,6 +588,9 @@ function markLegal(src) {
       for (let c = 0; c < 4; c++) if (canMove(M.cascadeToCell(src.idx, c))) slotEls.cell[c].classList.add("legal");
       if (canMove(M.cascadeToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
     }
+  } else if (src.kind === "foundation") {
+    // the pull: only a column can take a card back down
+    for (let t = 0; t < 8; t++) if (canMove(M.foundationToCascade(src.idx, t))) slotEls.cascade[t].classList.add("legal");
   } else {
     for (let t = 0; t < 8; t++) if (canMove(M.cellToCascade(src.idx, t))) slotEls.cascade[t].classList.add("legal");
     if (canMove(M.cellToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
@@ -808,7 +825,8 @@ svg.addEventListener("pointerdown", (e) => {
   const key = cardG.dataset.key;
   const src = movableOf(game.board, key);
   if (!src) {
-    // a buried card or one already home: the rules have no move from it.
+    // a buried card, or one buried at home: the rules have no move
+    // from it (a foundation's top card does — movableOf said so).
     // With a card selected, the click still names a destination.
     if (game.selected) { const s = game.selected; clearSelection(); tryTarget(slotAt(p), s); }
     return;
@@ -834,16 +852,19 @@ svg.addEventListener("pointerdown", (e) => {
 function tryTarget(slot, src) {
   if (!slot) return;
   if (slot.kind === "cascade") {
-    // a run (or a single card) crosses as a supermove
-    const got = F.supermove(game.board, src.idx, src.upto, slot.idx);
-    if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return; }
-    if (src.kind === "cascade" && src.upto === 0) {
-      const m = M.cascadeToCascade(src.idx, slot.idx);
-      if (canMove(m)) { play(m); return; }
-    }
-    if (src.kind === "cell") {
-      const m = M.cellToCascade(src.idx, slot.idx);
-      if (canMove(m)) { play(m); return; }
+    if (src.kind === "cascade") {
+      // a run (or a single card) crosses as a supermove
+      const got = F.supermove(game.board, src.idx, src.upto, slot.idx);
+      if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return; }
+      if (src.upto === 0) {
+        const m = M.cascadeToCascade(src.idx, slot.idx);
+        if (canMove(m)) { play(m); return; }
+      }
+    } else {
+      // a cell card, or a home card pulled back down, crosses as
+      // itself — never a run
+      const m = moveFor(src, slot);
+      if (m && canMove(m)) { play(m); return; }
     }
     say("illegal move", true);
     return;
@@ -885,7 +906,7 @@ svg.addEventListener("pointerup", (e) => {
     const p = svgPoint(e);
     const slot = slotAt(p);
     clearSelection();
-    if (slot && slot.kind === "cascade") {
+    if (slot && slot.kind === "cascade" && d.src.kind === "cascade") {
       const got = F.supermove(game.board, d.src.idx, d.src.upto, slot.idx);
       if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return; }
     }
@@ -924,7 +945,7 @@ svg.addEventListener("dblclick", (e) => {
   const cardG = e.target.closest ? e.target.closest(".card") : null;
   if (!cardG) return;
   const src = movableOf(game.board, cardG.dataset.key);
-  if (!src || src.upto !== 0) return; // only a working card goes home
+  if (!src || src.upto !== 0 || src.kind === "foundation") return; // only a working card goes home
   const m = src.kind === "cascade" ? M.cascadeToFoundation(src.idx) : M.cellToFoundation(src.idx);
   if (canMove(m)) play(m); else say("that card cannot go home", true);
 });

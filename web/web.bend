@@ -27,8 +27,9 @@ import ../plays.bend as P
 # main is a self-check of the calling convention the page uses:
 # the rules consulted, a refusal taken, the autoplay replayed,
 # the search stepped by hand, the dim rule named, a run crossed
-# and one refused. It prints "web api ok" and quits, the same
-# pattern as the server's House.self_check.
+# and one refused, a home card offered back down. It prints
+# "web api ok" and quits, the same pattern as the server's
+# House.self_check.
 
 # --- The page's vocabulary ---------------------------------------
 # Everything a driver may call, under names that do not move when
@@ -231,4 +232,11 @@ def main() -> IO(Unit):
     +crowded : F.Board = P.Play.crowded_witness()
     Web.expect(Bool.not(P.Play.is_some_super(Web.supermove(crowded, 0, 2, 1))),
       "no cells and no empty columns should refuse any run")
+    # the foundations are a home, not a trap: the ace of spades
+    # comes back down onto an empty column, and an empty foundation
+    # gives nothing back
+    Web.expect(Web.move_ok(Web.dim_witness(), F.FoundationToCascade{0, 5}),
+      "the ace of spades should come back down from home")
+    Web.expect(Bool.not(Web.move_ok(Web.dim_witness(), F.FoundationToCascade{1, 5})),
+      "an empty foundation should give nothing back")
     IO.print("web api ok\n")

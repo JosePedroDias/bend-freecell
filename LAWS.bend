@@ -85,3 +85,26 @@ law supermove_stages_over_a_spare_column:
 # card can cross, however willing the target.
 law supermove_refuses_what_the_cells_cannot_carry:
   {Play.Play.is_some_super(Play.Play.supermove(Play.Play.crowded_witness(), 0, 2, 1)) == False{} : Bool}
+
+# The foundations are a home, not a trap: the top card of a loaded
+# foundation comes back down onto any column that takes it, and
+# only that card leaves. Here the ace of spades — home on the dim
+# witness — lands on the empty column 5, leaving the rest of the
+# board untouched.
+law a_home_card_comes_back_down:
+  {FreeCell.Board.apply(Web.Web.dim_witness(), FreeCell.FoundationToCascade{0, 5}) == Some{FreeCell.Board{
+    [FreeCell.Card{FreeCell.Spades{}, FreeCell.Six{}} <> (FreeCell.Card{FreeCell.Hearts{}, FreeCell.Seven{}} <> (FreeCell.Card{FreeCell.Clubs{}, FreeCell.Eight{}} <> {Nil{} : +List<FreeCell.Card>})),
+     FreeCell.Card{FreeCell.Diamonds{}, FreeCell.Jack{}} <> (FreeCell.Card{FreeCell.Spades{}, FreeCell.Ten{}} <> (FreeCell.Card{FreeCell.Hearts{}, FreeCell.Nine{}} <> {Nil{} : +List<FreeCell.Card>})),
+     FreeCell.Card{FreeCell.Spades{}, FreeCell.King{}} <> (FreeCell.Card{FreeCell.Hearts{}, FreeCell.Ace{}} <> (FreeCell.Card{FreeCell.Clubs{}, FreeCell.Five{}} <> {Nil{} : +List<FreeCell.Card>})),
+     FreeCell.Card{FreeCell.Clubs{}, FreeCell.Nine{}} <> (FreeCell.Card{FreeCell.Spades{}, FreeCell.Two{}} <> {Nil{} : +List<FreeCell.Card>}),
+     {Nil{} : +List<FreeCell.Card>},
+     FreeCell.Card{FreeCell.Spades{}, FreeCell.Ace{}} <> {Nil{} : +List<FreeCell.Card>},
+     {Nil{} : +List<FreeCell.Card>},
+     {Nil{} : +List<FreeCell.Card>}],
+    [Some{FreeCell.Card{FreeCell.Diamonds{}, FreeCell.Eight{}}}, None{}, None{}, None{}],
+    [0, 0, 0, 0]}} : Maybe<&2, FreeCell.Board>}
+
+# An empty foundation gives nothing back, however willing the
+# column: the hearts foundation holds nothing on any fresh deal.
+law an_empty_foundation_gives_nothing_back:
+  {FreeCell.Board.can_move(FreeCell.Board.deal_ms(1), FreeCell.FoundationToCascade{1, 5}) == False{} : Bool}

@@ -14,6 +14,9 @@ import Base
 #     the opposite color; an empty cascade takes any card
 #   - a card may move to its suit's foundation only as the next
 #     rank up: the Ace starts an empty one
+#   - the top card of a foundation may come back down to a cascade
+#     the same rules would take it onto: the foundations are a
+#     home, not a trap
 #   - the game is won when every foundation holds all 13 cards
 #
 # Board.move_ok checks a move against these rules, Board.force
@@ -67,6 +70,10 @@ def Suit.to_u32(s: Suit) -> U32:
       2
     case Clubs{}:
       3
+
+def Suit.all() -> +List<Suit>:
+  # the four suits in foundation order — the inverse of Suit.to_u32
+  [Spades{}, Hearts{}, Diamonds{}, Clubs{}]
 
 def Suit.show(s: Suit) -> String:
   match s:
@@ -243,14 +250,16 @@ def Card.can_stack_on(card: Card, onto: Card) -> Bool:
 
 # --- Moves ------------------------------------------------------
 
-# A move takes one card from the top of a cascade or from a cell,
-# and drops it on a cell, a cascade or its foundation.
+# A move takes one card from the top of a cascade, from a cell, or
+# off the top of a foundation, and drops it on a cell, a cascade or
+# its foundation.
 type Move is Data:
   CascadeToCell{col: U32, cell: U32}
   CascadeToCascade{col: U32, col2: U32}
   CascadeToFoundation{col: U32}
   CellToCascade{cell: U32, col: U32}
   CellToFoundation{cell: U32}
+  FoundationToCascade{found: U32, col: U32}
 
 # a rule that must hold: None when it fails
 def check(ok: Bool) -> Maybe<&2, Unit>:
@@ -513,6 +522,44 @@ def Founds.takes(founds: +List<U32>, c: Card) -> Bool:
     case Card{suit, rank}:
       Founds.next_ok(Founds.of_suit(founds, suit), rank)
 
+def Founds.top_card.mk(s: Suit, got: Maybe<&2, Rank>) -> Maybe<&2, Card>:
+  # the card of the suit and the rank, when the rank is real
+  match got:
+    case Some{rank}:
+      Some{Card{s, rank}}
+    case None{}:
+      None{}
+
+def Founds.top_card.pick(s: Suit, ok: Bool, +n: U32) -> Maybe<&2, Card>:
+  # a positive count names its rank; a count of zero names nothing
+  match ok:
+    case True{}:
+      Founds.top_card.mk(s, List.get(&2, Rank, Rank.all(), U32.to_nat(U32.sub(n, 1))))
+    case False{}:
+      None{}
+
+def Founds.top_card.rank(s: Suit, got: Maybe<&2, U32>) -> Maybe<&2, Card>:
+  # the foundation's top card, once its suit is known
+  match got:
+    case Some{+n}:
+      Founds.top_card.pick(s, U32.is_lt(0, n), n)
+    case None{}:
+      None{}
+
+def Founds.top_card.go(suit: Maybe<&2, Suit>, founds: +List<U32>, +i: U32) -> Maybe<&2, Card>:
+  # the suit must be a foundation's, and the foundation must exist
+  match suit:
+    case Some{s}:
+      Founds.top_card.rank(s, Founds.get(founds, i))
+    case None{}:
+      None{}
+
+def Founds.top_card(founds: +List<U32>, +i: U32) -> Maybe<&2, Card>:
+  # the card on top of foundation i — its suit's card of its count —
+  # or None when the foundation is missing or holds nothing. The
+  # pull moves this card, and only this card, back down
+  Founds.top_card.go(List.get(&2, Suit, Suit.all(), U32.to_nat(i)), founds, i)
+
 def Founds.inc.go(got: Maybe<&2, U32>, founds: +List<U32>, i: U32) -> +List<U32>:
   # add one card to foundation i, if it exists
   match got:
@@ -531,6 +578,19 @@ def Founds.inc_card(got: Maybe<&2, Card>, founds: +List<U32>) -> +List<U32>:
       Founds.inc(founds, Card.suit_idx(c))
     case None{}:
       founds
+
+def Founds.dec.go(got: Maybe<&2, U32>, founds: +List<U32>, i: U32) -> +List<U32>:
+  # take one card back off foundation i, if it exists
+  match got:
+    case Some{count}:
+      List.set(&2, U32, founds, U32.to_nat(i), U32.sub(count, 1))
+    case None{}:
+      founds
+
+def Founds.dec(+founds: +List<U32>, +i: U32) -> +List<U32>:
+  # the mirror of Founds.inc: a pulled card leaves its foundation.
+  # Assumes the foundation holds one, as Board.move_ok checked
+  Founds.dec.go(Founds.get(founds, i), founds, i)
 
 def Founds.total(founds: +List<U32>) -> U32:
   # how many cards sit on the foundations
@@ -682,6 +742,14 @@ def Board.move_ok(b: Board, m: Move) -> Maybe<&2, Unit>:
         c : Card <- Cells.card(cells, cell)
         ok : Unit <- check(Founds.takes(founds, c))
         return Unit{}
+    case Board{cascades, _, founds} FoundationToCascade{found, col}:
+      # the pull: the foundation must hold its top card, and the
+      # cascade must take it — empty, or one rank higher of the
+      # opposite color, exactly as any other landing
+      do Maybe<&2, Unit>:
+        c : Card <- Founds.top_card(founds, found)
+        ok : Unit <- check(Piles.accepts(Piles.get(cascades, col), c))
+        return Unit{}
 
 def Board.can_move(b: Board, m: Move) -> Bool:
   # is m a legal move on b?
@@ -704,6 +772,8 @@ def Board.force(b: Board, m: Move) -> Board:
       Board{Piles.put_top(Cells.card(cells, cell), cascades, col), Cells.clear(cells, cell), founds}
     case Board{cascades, +cells, founds} CellToFoundation{+cell}:
       Board{cascades, Cells.clear(cells, cell), Founds.inc_card(Cells.card(cells, cell), founds)}
+    case Board{cascades, cells, +founds} FoundationToCascade{+found, col}:
+      Board{Piles.put_top(Founds.top_card(founds, found), cascades, col), cells, Founds.dec(founds, found)}
 
 def Board.apply.go(ok: Bool, b: Board, m: Move) -> Maybe<&2, Board>:
   match ok:
@@ -781,6 +851,8 @@ def Move.show(m: Move) -> String:
       "cell " ++ U32.show(cell) ++ " to cascade " ++ U32.show(col)
     case CellToFoundation{cell}:
       "cell " ++ U32.show(cell) ++ " to foundation"
+    case FoundationToCascade{+found, +col}:
+      "foundation " ++ U32.show(found) ++ " to cascade " ++ U32.show(col)
 
 # --- A demo -----------------------------------------------------
 

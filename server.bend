@@ -21,6 +21,7 @@ import ./plays.bend as P
 #   curl localhost:8080/1 -d "s"       # every safe home move
 #   curl localhost:8080/1 -d "d"       # the same game, dealt afresh
 #   curl localhost:8080/1 -d "1:2 3"   # a run, in single moves
+#   curl localhost:8080/1 -d "e 3"     # the spade foundation's top, back down
 #   curl localhost:8080/random         # a random solvable game
 #   curl localhost:8080/games          # the open games
 #
@@ -383,7 +384,7 @@ def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> 
     case T.Quit{}:
       House.err(games, 400, "Bad Request", "q is for the terminal; here, closing the connection is quitting")
     case T.Skip{}:
-      House.err(games, 400, "Bad Request", "post a command: '1 2' moves a card, '1:2 3' carries a run, 's' sends safely, 'u' undoes, 'r' redoes, 'd' deals afresh, 'h' helps")
+      House.err(games, 400, "Bad Request", "post a command: '1 2' moves a card, '1:2 3' carries a run, 'e 3' pulls a card back down, 's' sends safely, 'u' undoes, 'r' redoes, 'd' deals afresh, 'h' helps")
 
 def House.with_session(pair: +Map<Session> & Session, +game: U32, +cmd: T.Cmd) -> +Map<Session> & Response:
   (games2, s) = pair

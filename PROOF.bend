@@ -42,3 +42,9 @@ def Laws.supermove_stages_over_a_spare_column():
 
 def Laws.supermove_refuses_what_the_cells_cannot_carry():
   {==}
+
+def Laws.a_home_card_comes_back_down():
+  {==}
+
+def Laws.an_empty_foundation_gives_nothing_back():
+  {==}

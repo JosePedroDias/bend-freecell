@@ -312,6 +312,33 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
   ok("nothing moved", fc.game.moves === 5 && head(0) === "Hearts-Three"); // 5 from the staged test, unchanged
 }
 
+// the foundations are a home, not a trap: the top card of a loaded
+// foundation comes back down onto any column that takes it — one
+// move, one undo — and only the top: the ace beneath stays home.
+// An empty foundation gives nothing, and no column takes what it
+// cannot stack
+{
+  const toJs = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+  const head = (col) => { const pile = toJs(toJs(fc.game.board.cascades)[col]); return pile.length ? pile[0].suit.$ + "-" + pile[0].rank.$ : null; };
+  const pull = (f, c) => ({$: "FoundationToCascade", found: f, col: c});
+  fc.game.board = Board(
+    [[Card("Hearts", "Ten")], [Card("Diamonds", "Jack")], [], [], [], [], [], []],
+    [null, null, null, null], [2, 0, 0, 0]);   // the spade foundation: A♠ under 2♠
+  fc.game.moves = 0; fc.game.past.length = 0; fc.game.future.length = 0;
+  fc.render();
+  ok("the pull is legal through the page's rules", fc.F.canMove(fc.game.board, pull(0, 2)) === true);
+  ok("a column that cannot stack it refuses", fc.F.canMove(fc.game.board, pull(0, 0)) === false);
+  ok("an empty foundation gives nothing", fc.F.canMove(fc.game.board, pull(1, 2)) === false);
+  ok("the page plays the pull", fc.play(pull(0, 2)) === true);
+  ok("the two of spades came down", head(2) === "Spades-Two");
+  ok("the ace stayed home", JSON.stringify(toJs(fc.game.board.founds)) === "[1,0,0,0]");
+  ok("the pull counted one move", fc.game.moves === 1);
+  fc.undo();
+  ok("one undo takes it home again", JSON.stringify(toJs(fc.game.board.founds)) === "[2,0,0,0]" && fc.game.moves === 0);
+  // the undo emptied the column and reloaded the foundation
+  ok("the pull is legal again after the undo", head(2) === null && fc.F.canMove(fc.game.board, pull(0, 2)) === true);
+}
+
 // the stepping protocol, straight through the page's own module
 let state = fc.F.first(fc.game.board, 200);
 ok("search opens as a beam", state.$ === "Beam" && state.level === 200);

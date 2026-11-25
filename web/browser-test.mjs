@@ -224,6 +224,77 @@ try {
     check("the source column kept its deepest card", after.source);
   }
 
+  // 6. the foundations are a home, not a trap: click the top home
+  // card, click a column that takes it. Then a cell card must
+  // move as itself — never the same-indexed column's card, which
+  // would also fit the target
+  {
+    const laid = await page.evaluate(() => {
+      const Con = (h, t) => ({$: "Con", head: h, tail: t});
+      const Nil = {$: "Nil"};
+      const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+      const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+      const fc = window.freecell;
+      fc.game.board = {$: "Board",
+        cascades: list([list([Card("Diamonds", "Five")]), Nil, Nil, Nil, Nil, Nil, Nil, list([Card("Clubs", "Six")])]),
+        cells: list([{$: "Some", value: Card("Hearts", "Five")}, {$: "None"}, {$: "None"}, {$: "None"}]),
+        founds: list([2, 0, 0, 0])};
+      fc.game.moves = 0;
+      fc.game.past.length = 0;
+      fc.game.future.length = 0;
+      fc.render();
+      return true;
+    });
+    check("the pull board is laid", laid === true);
+    await sleep(350); // let the surgery's own glides land before aiming
+    const centerOf = async (key) => page.evaluate((key) => {
+      const r = document.querySelector(`[data-key="${key}"]`).getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    }, key);
+    // the two of spades, home on the foundation, onto empty column 2
+    const two = await centerOf("Spades-Two");
+    const col2 = await page.evaluate(() => {
+      const r = document.querySelectorAll("#slots .slot")[10].getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    });
+    await page.mouse.click(two.x, two.y);    // grab the home top card
+    await sleep(30);
+    await page.mouse.click(col2.x, col2.y);  // bring it down
+    await sleep(350);
+    const pull = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toArr = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      const pile2 = toArr(toArr(fc.game.board.cascades)[2]);
+      return {moves: fc.game.moves,
+              cameDown: pile2.length === 1 && pile2[0].suit.$ === "Spades" && pile2[0].rank.$ === "Two",
+              founds: toArr(fc.game.board.founds)};
+    });
+    check("the home top card came down in one move (" + pull.moves + ")", pull.moves === 1 && pull.cameDown);
+    check("the spade foundation kept its ace", JSON.stringify(pull.founds) === "[1,0,0,0]");
+    // the regression: the five of hearts in cell 0 must cross as
+    // itself — the old path asked the supermove for column 0,
+    // whose five of diamonds also fits the six of clubs
+    const five = await centerOf("Hearts-Five");
+    const six = await centerOf("Clubs-Six");
+    await page.mouse.click(five.x, five.y);
+    await sleep(30);
+    await page.mouse.click(six.x, six.y);
+    await sleep(350);
+    const cellMove = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toArr = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      const cell0 = toArr(fc.game.board.cells)[0];
+      const pile7 = toArr(toArr(fc.game.board.cascades)[7]);
+      const pile0 = toArr(toArr(fc.game.board.cascades)[0]);
+      return {cellEmpty: cell0.$ === "None",
+              landed: pile7.length ? pile7[0].suit.$ + "-" + pile7[0].rank.$ : null,
+              sourceKept: pile0.length === 1 && pile0[0].suit.$ === "Diamonds" && pile0[0].rank.$ === "Five",
+              moves: fc.game.moves};
+    });
+    check("the cell card moved as itself (" + cellMove.landed + ")",
+          cellMove.cellEmpty && cellMove.landed === "Hearts-Five" && cellMove.sourceKept && cellMove.moves === 2);
+  }
+
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);

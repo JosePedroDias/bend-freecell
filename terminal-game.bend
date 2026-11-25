@@ -12,9 +12,10 @@ import ./plays.bend as P
 # Moves are two words, <from> <to>: 1-8 a cascade, a-d a cell, h the
 # foundations. A run is a count on the source: '1:2 3' carries two
 # cards of column 1 onto column 3, expanded by the shared plays
-# module into single moves the rules check. Plus u (undo), r
-# (redo), s (safe home moves), d (deal afresh), h (help) and q
-# (quit).
+# module into single moves the rules check. As a source, e-h names
+# a foundation and pulls its top card back down: 'e 3'. Plus u
+# (undo), r (redo), s (safe home moves), d (deal afresh), h (help)
+# and q (quit).
 #
 # Bend has no read_line effect: the input is a File on /dev/stdin.
 # That handle is linear, so it travels inside the State below, and
@@ -42,6 +43,7 @@ def Args.session(+game: U32) -> U32 & F.Board:
 type Place is Data:
   Col{idx: U32}
   CellP{idx: U32}
+  FoundP{idx: U32}
   Home{}
   BadP{}
 
@@ -68,7 +70,7 @@ type State is Type:
   State{board: F.Board, past: List<F.Board>, future: List<F.Board>, input: File}
 
 def Parse.char_place(c: Char) -> Place:
-  # a column 1-8, a cell a-d, or the foundations h or f
+  # a target: a column 1-8, a cell a-d, or the foundations h or f
   match c:
     case '1':
       Col{0}
@@ -113,6 +115,62 @@ def Parse.char_place(c: Char) -> Place:
     case _:
       BadP{}
 
+def Parse.char_src(c: Char) -> Place:
+  # a source: a column 1-8, a cell a-d, or a foundation e-h — the
+  # foundations are a home, not a trap, so their top card can be
+  # pulled back down
+  match c:
+    case '1':
+      Col{0}
+    case '2':
+      Col{1}
+    case '3':
+      Col{2}
+    case '4':
+      Col{3}
+    case '5':
+      Col{4}
+    case '6':
+      Col{5}
+    case '7':
+      Col{6}
+    case '8':
+      Col{7}
+    case 'a':
+      CellP{0}
+    case 'b':
+      CellP{1}
+    case 'c':
+      CellP{2}
+    case 'd':
+      CellP{3}
+    case 'A':
+      CellP{0}
+    case 'B':
+      CellP{1}
+    case 'C':
+      CellP{2}
+    case 'D':
+      CellP{3}
+    case 'e':
+      FoundP{0}
+    case 'f':
+      FoundP{1}
+    case 'g':
+      FoundP{2}
+    case 'h':
+      FoundP{3}
+    case 'E':
+      FoundP{0}
+    case 'F':
+      FoundP{1}
+    case 'G':
+      FoundP{2}
+    case 'H':
+      FoundP{3}
+    case _:
+      BadP{}
+
 def Parse.place(tok: String) -> Place:
   # a one-letter place, or nothing
   match tok:
@@ -120,6 +178,16 @@ def Parse.place(tok: String) -> Place:
       BadP{}
     case SCon{c, SNil{}}:
       Parse.char_place(c)
+    case _:
+      BadP{}
+
+def Parse.src_place(tok: String) -> Place:
+  # a one-letter source: a column, a cell, or a foundation
+  match tok:
+    case SNil{}:
+      BadP{}
+    case SCon{c, SNil{}}:
+      Parse.char_src(c)
     case _:
       BadP{}
 
@@ -190,7 +258,7 @@ def Parse.run_cmd(g: Grab, target: Place) -> Cmd:
       Parse.run_of(Parse.run_target(target), col, count)
 
 def Parse.move_cmd(src: Place, dst: Place) -> Cmd:
-  # the five moves, and why any other pair makes no sense
+  # the six moves, and why any other pair makes no sense
   match src dst:
     case Col{a} CellP{b}:
       Play{F.CascadeToCell{a, b}}
@@ -202,14 +270,20 @@ def Parse.move_cmd(src: Place, dst: Place) -> Cmd:
       Play{F.CellToCascade{b, a}}
     case CellP{b} Home{}:
       Play{F.CellToFoundation{b}}
+    case FoundP{i} Col{a}:
+      Play{F.FoundationToCascade{i, a}}
     case CellP{_} CellP{_}:
       Oops{"a card never moves from cell to cell"}
+    case FoundP{_} _:
+      Oops{"a home card lands only on a column: 1-8"}
+    case _ FoundP{_}:
+      Oops{"a card homes by its own suit: 'h', not a foundation"}
     case Home{} _:
-      Oops{"the foundations keep their cards"}
+      Oops{"pull from a foundation by its letter: e-h"}
     case _ BadP{}:
       Oops{"unknown target: 1-8, a-d or h"}
     case BadP{} _:
-      Oops{"unknown source: 1-8, a-d or h"}
+      Oops{"unknown source: 1-8, a-d or e-h"}
 
 def Parse.pair_cmd(got: Maybe<&2, Grab>, t1: String, t2: String) -> Cmd:
   # two words: a run grab, or the two places of a single move
@@ -217,7 +291,7 @@ def Parse.pair_cmd(got: Maybe<&2, Grab>, t1: String, t2: String) -> Cmd:
     case Some{g}:
       Parse.run_cmd(g, Parse.place(t2))
     case None{}:
-      Parse.move_cmd(Parse.place(t1), Parse.place(t2))
+      Parse.move_cmd(Parse.src_place(t1), Parse.place(t2))
 
 def Parse.tokens(toks: List<&2, String>) -> Cmd:
   # the words of a line
@@ -317,15 +391,17 @@ def Game.help() -> String:
   # the commands
   l1 = {"moves are two words, <from> <to>:\n" : String}
   l2 = {"  1-8  a cascade column    a-d  a free cell    h  the foundation\n" : String}
-  l3 = {"  e.g. '1 2'  the top of column 1 onto column 2\n" : String}
-  l4 = {"       '3 a'  park the top of column 3 in cell a\n" : String}
-  l5 = {"       'b 4'  the card in cell b onto column 4\n" : String}
-  l6 = {"       '2 h'  the top of column 2 to its foundation\n" : String}
-  l7 = {"  a run carries a column's climbing cards together:\n" : String}
-  l8 = {"       '1:2 3'  two cards of column 1 onto column 3\n" : String}
-  l9 = {"s: safe home moves    d: deal afresh\n" : String}
-  l10 = {"u: undo    r: redo    q: quit    h: help\n" : String}
-  l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7 ++ l8 ++ l9 ++ l10
+  l3 = {"  e-h  a foundation, as the source of a pull back down\n" : String}
+  l4 = {"  e.g. '1 2'  the top of column 1 onto column 2\n" : String}
+  l5 = {"       '3 a'  park the top of column 3 in cell a\n" : String}
+  l6 = {"       'b 4'  the card in cell b onto column 4\n" : String}
+  l7 = {"       '2 h'  the top of column 2 to its foundation\n" : String}
+  l8 = {"       'e 3'  the spade foundation's top card onto column 3\n" : String}
+  l9 = {"  a run carries a column's climbing cards together:\n" : String}
+  l10 = {"       '1:2 3'  two cards of column 1 onto column 3\n" : String}
+  l11 = {"s: safe home moves    d: deal afresh\n" : String}
+  l12 = {"u: undo    r: redo    q: quit    h: help\n" : String}
+  l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7 ++ l8 ++ l9 ++ l10 ++ l11 ++ l12
 
 def Game.play(got: Maybe<&2, F.Board>, board: F.Board, past: List<F.Board>, input: File, k: State -> IO(Unit)) -> IO(Unit):
   # a legal move goes onto the history, and the redo history dies;

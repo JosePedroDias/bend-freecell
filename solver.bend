@@ -862,6 +862,10 @@ def Solve.cell_word(n: U32) -> String:
   # a cell index as typed
   Char.show(Char.from_u32(U32.add(97, n)))
 
+def Solve.found_word(n: U32) -> String:
+  # a foundation index as typed, when a home card comes back down
+  Char.show(Char.from_u32(U32.add(101, n)))
+
 def Solve.word(m: F.Move) -> String:
   # a move in the words the terminal game takes
   match m:
@@ -875,6 +879,8 @@ def Solve.word(m: F.Move) -> String:
       Solve.cell_word(cell) ++ " " ++ Solve.col_word(col)
     case F.CellToFoundation{cell}:
       Solve.cell_word(cell) ++ " h"
+    case F.FoundationToCascade{found, col}:
+      Solve.found_word(found) ++ " " ++ Solve.col_word(col)
 
 def Solve.count(ms: +List<F.Move>) -> U32:
   # how long a line is

@@ -48,7 +48,9 @@ moves, the search — is a call into the bundled checked code; the
 page only draws the answers and reads the clicks.
 
 Drag a card, or click a card and then its destination;
-double-click sends a card home when the rules allow it. A column's
+double-click sends a card home when the rules allow it. The top
+card of a foundation can be pulled back down the same ways — the
+foundations are a home, not a trap. A column's
 run — its working card and the cards stacked on it, up to the one
 you grab — crosses to another column in one gesture, expanded by
 the module into single moves that the page plays a beat apart,
@@ -136,8 +138,10 @@ two words, `<from> <to>`:
   1-8  a cascade column
   a-d  a free cell
   h    the foundation
+  e-h  a foundation, to pull its top card back down
 
   e.g. '1 2'  the top of column 1 onto column 2
+       'e 3'  the spade foundation's top card onto column 3
 ```
 
 A run is a count on the source — `'1:2 3'` carries two cards of
@@ -210,6 +214,7 @@ speak HTTP/1.0 and each connection carries one request:
 curl localhost:8080/1               # deal game 1, see it as JSON
 curl localhost:8080/1 -d "1 a"      # a move, the terminal game's words
 curl localhost:8080/1 -d "1:2 3"    # a run, in single moves
+curl localhost:8080/1 -d "e 3"      # the spade foundation's top, back down
 curl localhost:8080/1 -d "u"        # take it back
 curl localhost:8080/1 -d "r"        # take it forward again
 curl localhost:8080/1 -d "s"        # every safe home move
@@ -261,7 +266,8 @@ The rule book lives in `freecell.bend`:
 
 - `Card.can_stack_on` — the cascade rule (one rank lower, opposite color)
 - `Founds.next_ok` — the foundation rule (rank n+1 next; the Ace starts one)
-- `Board.move_ok` — all five moves checked against the rules
+- `Founds.top_card` — the card a loaded foundation would give back (the pull's source)
+- `Board.move_ok` — all six moves checked against the rules
 - `Board.force` — perform a legal move unchecked (for the future solver)
 - `Board.apply` — the authoritative transition: `Some(next board)` iff legal
 - `Board.is_won` — every foundation holds all 13 cards
