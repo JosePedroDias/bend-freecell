@@ -1,0 +1,5 @@
+- clicking once in a card highlights valid destinations in the web UI
+- clicking a second time in the same card does one of the valid moves highlighed in the first click
+- highlighting the foundation slot is ineffective in the web ui if cards are above it. maybe just increase the dimensions of the slot so it still appears even when it has cards on top of it
+- can we tweak or refactor the beam algorithm so it guarantees the smallest solving plan (without it being prohibitively slow and/or memory hoarder)?
+- server: how complex would the server need to be to support http 1.1? (for the features the server uses)
