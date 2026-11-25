@@ -325,8 +325,9 @@ def View.pad2(+n: U32) -> String:
   Bool.pick(String, U32.is_lt(n, 10), " " ++ U32.show(n), U32.show(n))
 
 def View.suit_letters() -> +List<&2, String>:
-  # the foundations in suit order, as letters
-  ["S", "H", "D", "C"]
+  # the foundations in suit order, as letters — S H C D, the
+  # colors alternating down the row
+  ["S", "H", "C", "D"]
 
 def View.cells_line(cells: +List<+Maybe<F.Card>>) -> String:
   # the four free cells

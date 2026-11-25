@@ -60,20 +60,21 @@ def Suit.is_red(s: Suit) -> Bool:
       True{}
 
 def Suit.to_u32(s: Suit) -> U32:
-  # the foundation of a suit: spades 0, hearts 1, diamonds 2, clubs 3
+  # the foundation of a suit: spades 0, hearts 1, clubs 2, diamonds 3
+  # — an order that alternates the colors down the row: S H C D
   match s:
     case Spades{}:
       0
     case Hearts{}:
       1
-    case Diamonds{}:
-      2
     case Clubs{}:
+      2
+    case Diamonds{}:
       3
 
 def Suit.all() -> +List<Suit>:
   # the four suits in foundation order — the inverse of Suit.to_u32
-  [Spades{}, Hearts{}, Diamonds{}, Clubs{}]
+  [Spades{}, Hearts{}, Clubs{}, Diamonds{}]
 
 def Suit.show(s: Suit) -> String:
   match s:

@@ -67,6 +67,14 @@ ok("16 slot outlines", doc.querySelectorAll(".slot").length === 16);
   const bays = [...doc.querySelectorAll(".slot")].map((el) => +el.getAttribute("width"));
   ok("every slot bays wider than a card", bays.length === 16 && bays.every((w) => w > face));
 }
+// the foundations read S H C D down the row — the colors
+// alternating — every suit wearing its own
+{
+  const wms = [...doc.querySelectorAll(".wm")];
+  const wears = (el) => el.classList.contains("blk") ? "blk" : el.classList.contains("red") ? "red" : "none";
+  ok("the foundations alternate suits SHCD", wms.map((el) => el.textContent).join("") === "♠♥♣♦");
+  ok("the watermarks alternate black red black red", wms.map(wears).join(" ") === "blk red blk red");
+}
 
 // paint order within a column: DOM order must run bottom-up, so the
 // top card is painted last and covers the cards it buries. Positions

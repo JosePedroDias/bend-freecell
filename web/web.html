@@ -92,10 +92,11 @@
   .slot.hot   { fill: rgba(255, 213, 79, 0.28); }
   .wm {
     font-size: 58px;
-    fill: rgba(255, 255, 255, 0.13);
     text-anchor: middle;
     pointer-events: none;
   }
+  .wm.blk { fill: rgba(30, 33, 38, 0.25); } /* spades and clubs read black on the felt */
+  .wm.red { fill: rgba(192, 54, 44, 0.16); } /* hearts and diamonds read red on the felt */
 
   /* cards */
   .card { cursor: pointer; }
@@ -255,7 +256,7 @@ const SPAN = 720 - CASC - CH;      // how deep a cascade may reach
 const colX = (i) => X0 + i * GX;
 const PAD = 8;                     // the rim of empty bay around every card
 
-const SUITS = ["Spades", "Hearts", "Diamonds", "Clubs"]; // foundation order
+const SUITS = ["Spades", "Hearts", "Clubs", "Diamonds"]; // foundation order: the colors alternate
 const RANKS = ["Ace", "Two", "Three", "Four", "Five", "Six", "Seven",
                "Eight", "Nine", "Ten", "Jack", "Queen", "King"];
 const GLYPH = {Spades: "♠", Hearts: "♥", Diamonds: "♦", Clubs: "♣"};
@@ -328,7 +329,10 @@ const slotEls = {cell: [], foundation: [], cascade: []};
   for (let i = 0; i < 4; i++) {
     const g = mk("g", {});
     g.appendChild(mk("rect", {...slotAttrs, x: colX(4 + i) - PAD, y: TOP - PAD}));
-    const wm = mk("text", {class: "wm", x: colX(4 + i) + CW / 2, y: TOP + CH / 2 + 21});
+    // every suit wears its own color, so the row reads black red
+    // black red
+    const red = SUITS[i] === "Hearts" || SUITS[i] === "Diamonds";
+    const wm = mk("text", {class: "wm " + (red ? "red" : "blk"), x: colX(4 + i) + CW / 2, y: TOP + CH / 2 + 21});
     wm.textContent = GLYPH[SUITS[i]];
     g.appendChild(wm);
     slotsG.appendChild(g); slotEls.foundation.push(g.firstChild);

@@ -174,7 +174,7 @@ def Json.found(+letter: String, +n: U32) -> String:
   Json.str(letter) ++ ":" ++ Json.num(n)
 
 def Json.founds(founds: +List<U32>, +letters: +List<&2, String>, +acc: String) -> String:
-  # the foundations, suit by suit: S, H, D, C
+  # the foundations, suit by suit: S, H, C, D — colors alternating
   match founds letters:
     case Nil{} _:
       acc
