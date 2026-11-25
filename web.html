@@ -660,6 +660,10 @@ function newGame(no) {
   svg.classList.remove("paused");
   $("veil").classList.remove("on");
   game.no = no;
+  // the deal box and the address both name the game, so a link —
+  // freecell.html#4242 — is all it takes to hand one to a friend
+  $("gameno").value = no;
+  try { history.replaceState(null, "", "#" + no); } catch { location.hash = String(no); }
   game.board = F.deal(no);
   game.past.length = 0;
   game.future.length = 0;
@@ -675,8 +679,15 @@ function newGame(no) {
 function randomGame() {
   let n;
   do { n = 1 + Math.floor(Math.random() * 32000); } while (n === 11982);
-  $("gameno").value = n;
   newGame(n);
+}
+
+// a game number handed over in the address — freecell.html#4242
+// deals game 4242, so a link is all it takes to share one. A hash
+// that names no number falls back to the random open
+function hashGame() {
+  const n = parseInt((location.hash || "").replace(/^#/, ""), 10);
+  return Number.isFinite(n) && n >= 1 ? Math.min(32000, n) : null;
 }
 
 // --- pointer play: drag, drop, click, double-click ---------------
@@ -793,7 +804,6 @@ svg.addEventListener("dblclick", (e) => {
 $("new").addEventListener("click", randomGame);
 $("deal").addEventListener("click", () => {
   const n = Math.max(1, Math.min(32000, Math.floor(+$("gameno").value || 1)));
-  $("gameno").value = n;
   newGame(n);
 });
 $("undo").addEventListener("click", undo);
@@ -819,7 +829,11 @@ document.addEventListener("keydown", (e) => {
 // a handle for the console, and for the page's own tests
 window.freecell = {game, F, newGame, play, undo, redo, safeMoves, solve, render, togglePause};
 
-newGame(1);
+// the page opens the way New deals — a random game from the classic
+// range, 11982 re-rolled — unless the address hands one over, in
+// which case it deals exactly that game
+const shared = hashGame();
+if (shared !== null) newGame(shared); else randomGame();
 </script>
 </body>
 </html>

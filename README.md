@@ -52,9 +52,41 @@ once, and `Solve` beam-searches for a winning line — one level
 per beat, with a progress bar, so the page never freezes — then
 offers to play the line move by move. The clock starts with the
 deal; `Pause` (or `p`) holds it and hides the cards, so a break
-is not on the record. `New` deals a random
-solvable game (the classic range, 11982 re-rolled); a number and
-`Deal` deal exactly that game.
+is not on the record. The page opens on a random
+solvable game, and so does `New` (the classic range, 11982
+re-rolled); a number and `Deal` deal exactly that game. The
+address names the game in play — `freecell.html#4242` is game
+4242, ready to send to a friend — and every deal writes it there.
+
+### Test the web build
+
+```bash
+npm install        # once: jsdom, for the page's test
+node web-test.mjs  # builds freecell.html, then drives it
+```
+
+The page's answers come from the bundled bend code, but its hands —
+the SVG, the pointer, the clock — answer to the DOM. The test loads
+the built artifact into jsdom and plays it: renders all 52 cards,
+has the rules refuse an illegal move and take a legal one, walks
+undo and redo, sends a safe ace home, wins a crafted endgame to see
+the banner, opens a search within a small budget, checks every
+column's paint order (including a card that lands exactly where it
+already was), and checks the deal box and the address name the
+game. It is the cheap gate for `web.html`.
+
+The search the page drives — `Solver.first` stepped by `Beam.step`
+— is a port of the checked search in
+[HOW-TO-USE-BEND.md](HOW-TO-USE-BEND.md)'s sense, so it carries the
+differential test that document asks of a port: same board into
+both paths, same winning line out.
+
+```bash
+node solver-test.mjs   # ~40s: the stepped line == the one-shot line
+```
+
+That one takes the deep path — two full searches — so it gates
+`solver.bend` changes, not every commit.
 
 ### Play the terminal game
 

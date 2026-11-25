@@ -1,0 +1,12 @@
+{
+  "name": "bend-freecell",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node web-test.mjs",
+    "test:solver": "node solver-test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}

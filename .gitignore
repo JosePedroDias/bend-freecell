@@ -3,3 +3,4 @@ web-dist/
 freecell.html
 solver-bin
 solver
+node_modules/
