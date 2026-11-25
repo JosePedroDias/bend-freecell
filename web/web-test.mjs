@@ -355,6 +355,69 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
   ok("the pull is legal again after the undo", head(2) === null && fc.F.canMove(fc.game.board, pull(0, 2)) === true);
 }
 
+// a second click on the same card takes one of the moves the first
+// click lit — the best of them. Home first, then the leftmost
+// column that takes it, then the leftmost free cell; a grabbed run
+// crosses as a supermove; nothing lit, nothing played
+{
+  const toJs = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+  const head = (col) => { const pile = toJs(toJs(fc.game.board.cascades)[col]); return pile.length ? pile[0].suit.$ + "-" + pile[0].rank.$ : null; };
+  const founds = () => JSON.stringify(toJs(fc.game.board.founds));
+  const reset = () => { fc.game.moves = 0; fc.game.past.length = 0; fc.game.future.length = 0; };
+  const grab = {kind: "cascade", idx: 0, upto: 0};
+  // home first: the ace of spades, with columns and cells lit too
+  fc.game.board = Board([[Card("Spades", "Ace")], [], [], [], [], [], [], []], [null, null, null, null], [0, 0, 0, 0]);
+  fc.render(); reset();
+  ok("the same click again moves the card", fc.smartMove(grab) === true);
+  ok("home was the move it took", founds() === "[1,0,0,0]" && fc.game.moves === 1);
+  // a column before a cell: the two of spades, a three of hearts waiting
+  fc.game.board = Board(
+    [[Card("Spades", "Two")], [Card("Diamonds", "Nine")], [Card("Hearts", "Three")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")]],
+    [null, null, null, null], [0, 0, 0, 0]);
+  fc.render(); reset();
+  ok("a willing column beats the cells", fc.smartMove(grab) === true);
+  ok("it landed on the three of hearts", head(2) === "Spades-Two" && fc.game.moves === 1);
+  await sleep(150); // let the one-beat crossing's async tail land before the next grab
+  // the cell as the last resort: nothing takes the two but the cells
+  fc.game.board = Board(
+    [[Card("Spades", "Two")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")]],
+    [null, null, null, null], [0, 0, 0, 0]);
+  fc.render(); reset();
+  ok("the free cell is the last resort", fc.smartMove(grab) === true);
+  const cells = toJs(fc.game.board.cells).map((c) => c.$ === "Some" ? c.value.suit.$ + "-" + c.value.rank.$ : null);
+  ok("it parked in cell a", JSON.stringify(cells) === JSON.stringify(["Spades-Two", null, null, null]));
+  // nothing lit: nothing plays
+  fc.game.board = Board(
+    [[Card("Spades", "Two")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")]],
+    [Card("Clubs", "King"), Card("Clubs", "King"), Card("Clubs", "King"), Card("Clubs", "King")],
+    [0, 0, 0, 0]);
+  fc.render(); reset();
+  const frozen = fc.game.board;
+  ok("nothing lit, nothing played", fc.smartMove(grab) === false);
+  ok("the board did not change", fc.game.board === frozen && fc.game.moves === 0);
+  ok("the page says why", doc.getElementById("status").textContent === "that card has nowhere to go");
+  // a grabbed run crosses as a supermove, to the leftmost column that fits it
+  fc.game.board = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Clubs", "Six")]],
+    [null, null, null, null], [0, 0, 0, 0]);
+  fc.render(); reset();
+  ok("a grabbed run crosses on the second click", fc.smartMove({kind: "cascade", idx: 0, upto: 2}) === true);
+  await sleep(750); // the five beats of the crossing
+  ok("the run crossed onto the six", head(7) === "Hearts-Three" && fc.game.moves === 5);
+  fc.undo();
+  ok("one undo takes the whole crossing back", fc.game.moves === 0 && head(0) === "Hearts-Three");
+}
+
+
 // the stepping protocol, straight through the page's own module
 let state = fc.F.first(fc.game.board, 200);
 ok("search opens as a beam", state.$ === "Beam" && state.level === 200);

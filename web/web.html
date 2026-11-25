@@ -217,8 +217,8 @@
 </div>
 
 <footer>
-  drag a card, or click a card then its destination · double-click sends a card home ·
-  a foundation's top card can be pulled back down ·
+  drag a card, or click a card then its destination — or the same card again, to take one of the lit moves ·
+  double-click sends a card home · a foundation's top card can be pulled back down ·
   <b>n</b> new · <b>u</b> undo · <b>r</b> redo · <b>s</b> safe moves · <b>h</b> solve ·
   <b>p</b> pause
 </footer>
@@ -254,7 +254,7 @@ const X0 = 12.5, GX = 125;         // the 8-column grid
 const TOP = 16, CASC = 180;        // the two rows
 const SPAN = 720 - CASC - CH;      // how deep a cascade may reach
 const colX = (i) => X0 + i * GX;
-const PAD = 8;                     // the rim of empty bay around every card
+const PAD = 4;                     // the thin rim of empty bay around every card
 
 const SUITS = ["Spades", "Hearts", "Clubs", "Diamonds"]; // foundation order: the colors alternate
 const RANKS = ["Ace", "Two", "Three", "Four", "Five", "Six", "Seven",
@@ -674,6 +674,7 @@ function redo() {
 function safeMoves() {
   if (game.paused || game.playing) return;
   if (game.solving) game.cancelSolve = true;
+  clearSelection(); // the lit destinations were for the board before the send
   const pair = F.autoplay(game.board);
   const moves = toArr(pair.snd);
   if (moves.length === 0) { say("no safe home moves", true); return; }
@@ -883,6 +884,40 @@ function tryTarget(slot, src) {
   else say("illegal move", true);
 }
 
+// a second click on the same card takes one of the moves the
+// first click lit — the best of them: home first, then the
+// leftmost column that takes it, then the leftmost free cell.
+// A grabbed run crosses as a supermove; a pulled home card has
+// only the columns
+let lastSmartAt = 0;
+function smartMove(src) {
+  if (game.playing || game.paused) return false; // a crossing in flight owns the board
+  lastSmartAt = Date.now(); // the double-click this pair makes plays nothing more
+  clearSelection();
+  const home = src.kind === "cascade" ? M.cascadeToFoundation(src.idx)
+             : src.kind === "cell" ? M.cellToFoundation(src.idx)
+             : null;
+  if (home && canMove(home)) { play(home); return true; }
+  for (let t = 0; t < 8; t++) {
+    if (src.kind === "cascade") {
+      if (t === src.idx) continue;
+      const got = F.supermove(game.board, src.idx, src.upto, t);
+      if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return true; }
+    } else {
+      const m = moveFor(src, {kind: "cascade", idx: t});
+      if (m && canMove(m)) { play(m); return true; }
+    }
+  }
+  if (src.kind === "cascade" && src.upto === 0) {
+    for (let c = 0; c < 4; c++) {
+      const m = M.cascadeToCell(src.idx, c);
+      if (canMove(m)) { play(m); return true; }
+    }
+  }
+  say("that card has nowhere to go", true);
+  return false;
+}
+
 svg.addEventListener("pointermove", (e) => {
   if (!drag) return;
   const p = svgPoint(e);
@@ -931,7 +966,7 @@ svg.addEventListener("pointerup", (e) => {
     const same = s.kind === d.src.kind && s.idx === d.src.idx && s.upto === d.src.upto;
     const regrab = s.kind === d.src.kind && s.idx === d.src.idx && !same;
     clearSelection();
-    if (same) return; // the same grab again: just deselect
+    if (same) { smartMove(s); return; } // the same grab again: take one of its lit moves
     if (regrab) { // deeper or shallower in the same column: re-grab
       game.selected = d.src;
       markSelected(d.src);
@@ -950,6 +985,7 @@ svg.addEventListener("pointerup", (e) => {
 
 svg.addEventListener("dblclick", (e) => {
   if (game.paused) return;
+  if (Date.now() - lastSmartAt < 500) return; // the second click already played the move
   const cardG = e.target.closest ? e.target.closest(".card") : null;
   if (!cardG) return;
   const src = movableOf(game.board, cardG.dataset.key);
@@ -995,7 +1031,7 @@ async function playSuper(col, upto, target) {
 }
 
 // a handle for the console, and for the page's own tests
-window.freecell = {game, F, newGame, play, playSuper, undo, redo, safeMoves, solve, render, togglePause};
+window.freecell = {game, F, newGame, play, playSuper, smartMove, undo, redo, safeMoves, solve, render, togglePause};
 
 // the page opens the way New deals — a random game from the classic
 // range, 11982 re-rolled — unless the address hands one over, in

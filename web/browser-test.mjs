@@ -295,6 +295,70 @@ try {
           cellMove.cellEmpty && cellMove.landed === "Hearts-Five" && cellMove.sourceKept && cellMove.moves === 2);
   }
 
+  // 7. the same card, clicked again: it takes one of the moves the
+  // first click lit — home when the rules allow it, else the
+  // leftmost column that fits — and the double-click that follows
+  // a rapid pair plays nothing more
+  {
+    const centerOf = async (key) => page.evaluate((key) => {
+      const r = document.querySelector(`[data-key="${key}"]`).getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    }, key);
+    const lay = (board) => page.evaluate((board) => {
+      const fc = window.freecell;
+      fc.game.board = board;
+      fc.game.moves = 0;
+      fc.game.past.length = 0;
+      fc.game.future.length = 0;
+      fc.render();
+      return true;
+    }, board);
+    const Con = (h, t) => ({$: "Con", head: h, tail: t});
+    const Nil = {$: "Nil"};
+    const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+    const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+    // home first: the ace of spades, everything else lit too
+    check("the home board is laid", await lay({$: "Board",
+      cascades: list([list([Card("Spades", "Ace")]), Nil, Nil, Nil, Nil, Nil, Nil, Nil]),
+      cells: list([{$: "None"}, {$: "None"}, {$: "None"}, {$: "None"}]),
+      founds: list([0, 0, 0, 0])}) === true);
+    await sleep(350);
+    const ace = await centerOf("Spades-Ace");
+    await page.mouse.click(ace.x, ace.y);   // select; the destinations light
+    await sleep(30);
+    await page.mouse.click(ace.x, ace.y);   // the same card again: home it goes
+    await sleep(350);
+    const went = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toA = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      return {moves: fc.game.moves, founds: toA(fc.game.board.founds),
+              source: toA(toA(fc.game.board.cascades)[0]).length};
+    });
+    check("the second click sent it home (" + went.moves + " move)", went.moves === 1 && JSON.stringify(went.founds) === "[1,0,0,0]" && went.source === 0);
+    // a card that cannot go home takes the leftmost column that fits,
+    // with the cells free and willing
+    check("the column board is laid", await lay({$: "Board",
+      cascades: list([list([Card("Spades", "Two")]), list([Card("Diamonds", "Nine")]),
+                      list([Card("Hearts", "Three")]), list([Card("Diamonds", "Nine")]),
+                      list([Card("Diamonds", "Nine")]), list([Card("Diamonds", "Nine")]),
+                      list([Card("Diamonds", "Nine")]), list([Card("Diamonds", "Nine")])]),
+      cells: list([{$: "None"}, {$: "None"}, {$: "None"}, {$: "None"}]),
+      founds: list([0, 0, 0, 0])}) === true);
+    await sleep(350);
+    const two = await centerOf("Spades-Two");
+    await page.mouse.click(two.x, two.y);
+    await sleep(30);
+    await page.mouse.click(two.x, two.y);
+    await sleep(350);
+    const crossed = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toA = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      const pile2 = toA(toA(fc.game.board.cascades)[2]);
+      return {moves: fc.game.moves, landed: pile2.length ? pile2[0].suit.$ + "-" + pile2[0].rank.$ : null};
+    });
+    check("it took the lit column, not a cell (" + crossed.landed + ")",
+          crossed.moves === 1 && crossed.landed === "Spades-Two");
+  }
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);
