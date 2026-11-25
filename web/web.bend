@@ -112,6 +112,21 @@ def Web.dim_piles(piles: +List<+List<F.Card>>, +founds: +List<U32>, +acc: +List<
     case +p <> ps:
       Web.dim_piles(ps, founds, Web.dim_pile(p, founds, acc))
 
+def Web.dim_witness() -> F.Board:
+  # a board for the dim law: a column that climbs, a column that
+  # falls, a buried ace, a buried card its foundation wants next,
+  # a card parked in a cell and one already home. The law states
+  # the exact noise; this is the board it is stated on
+  +empty : +List<F.Card> = {Nil{} : +List<F.Card>}
+  F.Board{
+    [F.Card{F.Spades{}, F.Six{}} <> (F.Card{F.Hearts{}, F.Seven{}} <> (F.Card{F.Clubs{}, F.Eight{}} <> empty)),
+     F.Card{F.Diamonds{}, F.Jack{}} <> (F.Card{F.Spades{}, F.Ten{}} <> (F.Card{F.Hearts{}, F.Nine{}} <> empty)),
+     F.Card{F.Spades{}, F.King{}} <> (F.Card{F.Hearts{}, F.Ace{}} <> (F.Card{F.Clubs{}, F.Five{}} <> empty)),
+     F.Card{F.Clubs{}, F.Nine{}} <> (F.Card{F.Spades{}, F.Two{}} <> empty),
+     empty, empty, empty, empty],
+    [Some{F.Card{F.Diamonds{}, F.Eight{}}}, None{}, None{}, None{}],
+    [1, 0, 0, 0]}
+
 def Web.dim(b: F.Board) -> +List<F.Card>:
   # the cards the page darkens: buried cards that are no aces, are
   # not wanted home, and do not continue a rising run — the card
@@ -182,17 +197,11 @@ def main() -> IO(Unit):
     +opened : S.Search = S.Solver.first(S.Solver.autoplay(64n, b), 3n)
     +stepped : S.Search = S.Beam.step(S.Beam.step(opened))
     Web.beam_left(stepped, 1n)
-    # the dim vocabulary on two crafted columns, bottom to top:
-    # 6S-7H-8C climbs — each card a place the one beneath it can hop
-    # onto — and stays fully lit; J♦-10♠-9♥ falls, and darkens
-    # above its working card. Exactly the ten and the nine are named
-    +empty : +List<F.Card> = {Nil{} : +List<F.Card>}
-    +noise : F.Board = F.Board{
-      [F.Card{F.Spades{}, F.Six{}} <> (F.Card{F.Hearts{}, F.Seven{}} <> (F.Card{F.Clubs{}, F.Eight{}} <> empty)),
-       F.Card{F.Diamonds{}, F.Jack{}} <> (F.Card{F.Spades{}, F.Ten{}} <> (F.Card{F.Hearts{}, F.Nine{}} <> empty)),
-       empty, empty, empty, empty, empty, empty],
-      [None{}, None{}, None{}, None{}],
-      [0, 0, 0, 0]}
-    Web.expect(F.Pile.is_eq(Web.dim(noise), [F.Card{F.Hearts{}, F.Nine{}}, F.Card{F.Spades{}, F.Ten{}}]),
-      "the dim rule should name the falling ten and nine")
+    # the dim vocabulary on the witness board: the climbing column
+    # stays fully lit, the falling one darkens above its working
+    # card, the buried ace and the wanted two stay lit — so exactly
+    # the five, the nine and the ten are named, in the walk's order
+    Web.expect(F.Pile.is_eq(Web.dim(Web.dim_witness()),
+      [F.Card{F.Clubs{}, F.Five{}}, F.Card{F.Hearts{}, F.Nine{}}, F.Card{F.Spades{}, F.Ten{}}]),
+      "the dim rule should name the five, the nine and the ten")
     IO.print("web api ok\n")
