@@ -192,6 +192,7 @@
   <button id="redo" title="redo (r)">Redo</button>
   <button id="safe" title="send every safe card home (s)">Safe</button>
   <button id="solve" title="search for a winning line (h)">Solve</button>
+  <button id="hint" title="search, then play one move of the plan (t)">Hint</button>
   <button id="playline" hidden title="play the winning line found">Play line</button>
   <button id="pause" title="pause the clock and hide the cards (p)">Pause</button>
   <span id="status"></span>
@@ -219,7 +220,7 @@
 <footer>
   drag a card, or click a card then its destination — or the same card again, to take one of the lit moves ·
   double-click sends a card home · a foundation's top card can be pulled back down ·
-  <b>n</b> new · <b>u</b> undo · <b>r</b> redo · <b>s</b> safe moves · <b>h</b> solve ·
+  <b>n</b> new · <b>u</b> undo · <b>r</b> redo · <b>s</b> safe moves · <b>t</b> hint · <b>h</b> solve ·
   <b>p</b> pause
 </footer>
 
@@ -732,18 +733,16 @@ function checkWon() {
 
 const SOLVE_LEVELS = 200;
 
-async function solve(levels) {
-  const budget = levels || SOLVE_LEVELS;
-  if (game.paused || game.playing) return;
-  if (game.solving) { game.cancelSolve = true; return; }  // second click: cancel
-  if (game.playing) return;
+// the search, run to a plan — its progress, its cancel, and the
+// plan's moves, or null when none was found. Solve and hint are
+// the two doors into the one searcher
+async function runSearch(budget) {
   game.solving = true;
   game.cancelSolve = false;
   game.solution = null;
   $("solve").textContent = "Cancel";
   $("solve").classList.add("busy");
   $("solvebar").classList.add("on");
-  clearSelection();
   try {
     let state = F.first(game.board, budget);
     let level = 0;
@@ -755,20 +754,64 @@ async function solve(levels) {
       $("solvefill").style.width = (100 * level / budget) + "%";
       await new Promise((ok) => setTimeout(ok, 0)); // let the page breathe
     }
-    if (state.$ === "Solved") {
-      game.solution = toArr(state.line);
-      say("solves in " + game.solution.length + " moves", true);
-      $("playline").hidden = false;
-    } else if (game.cancelSolve) {
-      say("search cancelled");
-    } else {
-      say("no solution found within the beam budgets", true);
-    }
+    return state.$ === "Solved" ? toArr(state.line) : null;
   } finally {
     game.solving = false;
     $("solve").textContent = "Solve";
     $("solve").classList.remove("busy");
     $("solvebar").classList.remove("on");
+  }
+}
+
+async function solve(levels) {
+  const budget = levels || SOLVE_LEVELS;
+  if (game.paused || game.playing) return;
+  if (game.solving) { game.cancelSolve = true; return; }  // second click: cancel
+  clearSelection();
+  const line = await runSearch(budget);
+  if (line) {
+    game.solution = line;
+    say("solves in " + line.length + " moves", true);
+    $("playline").hidden = false;
+  } else if (game.cancelSolve) {
+    say("search cancelled");
+  } else {
+    say("no solution found within the beam budgets", true);
+  }
+}
+
+// one move, said in words: which card, and where it goes — the
+// hint's one-line story
+function describe(m) {
+  const word = (c) => c ? "the " + c.rank.$.toLowerCase() + " of " + c.suit.$.toLowerCase() : "no card";
+  if (m.$ === "CascadeToCell") return "park " + word(heldOf({kind: "cascade", idx: m.col, upto: 0})) + " in a free cell";
+  if (m.$ === "CascadeToFoundation") return "send " + word(heldOf({kind: "cascade", idx: m.col, upto: 0})) + " home";
+  if (m.$ === "CellToFoundation") return "send " + word(heldOf({kind: "cell", idx: m.cell, upto: 0})) + " home from its cell";
+  if (m.$ === "CellToCascade") return "bring " + word(heldOf({kind: "cell", idx: m.cell, upto: 0})) + " down from its cell";
+  if (m.$ === "CascadeToCascade") {
+    const pile = toArr(toArr(game.board.cascades)[m.col2] || {$: "Nil"});
+    return "move " + word(heldOf({kind: "cascade", idx: m.col, upto: 0})) +
+      (pile.length ? " onto " + word(pile[0]) : " onto the empty column");
+  }
+  return "a move";
+}
+
+// the hint: the same search, asked for one move of its plan — one
+// click walks the board one step closer to the win
+async function hint() {
+  if (game.paused || game.playing) return;
+  if (game.solving) { game.cancelSolve = true; return; }  // a search in flight: either button cancels it
+  clearSelection();
+  const line = await runSearch(SOLVE_LEVELS);
+  if (line && line.length) {
+    const m = line[0];
+    const words = describe(m); // against the board the plan was drawn on
+    if (play(m, true)) say("a hint: " + words + ", one move of the plan");
+    else say("the plan's first move is refused — the board changed", true);
+  } else if (game.cancelSolve) {
+    say("search cancelled");
+  } else {
+    say("no plan from here within the beam budgets", true);
   }
 }
 
@@ -1055,6 +1098,7 @@ $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("safe").addEventListener("click", safeMoves);
 $("solve").addEventListener("click", () => solve());
+$("hint").addEventListener("click", hint);
 $("playline").addEventListener("click", playLine);
 $("pause").addEventListener("click", togglePause);
 $("again").addEventListener("click", randomGame);
@@ -1068,6 +1112,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "r") redo();
   else if (k === "n") randomGame();
   else if (k === "s") safeMoves();
+  else if (k === "t") hint();
   else if (k === "h") solve();
 });
 
@@ -1098,7 +1143,7 @@ async function playCells(col, upto, cell) {
 }
 
 // a handle for the console, and for the page's own tests
-window.freecell = {game, F, newGame, play, playSuper, playCells, smartMove, moveFor, undo, redo, safeMoves, solve, render, togglePause};
+window.freecell = {game, F, newGame, play, playSuper, playCells, smartMove, moveFor, undo, redo, safeMoves, solve, hint, render, togglePause};
 
 // the page opens the way New deals — a random game from the classic
 // range, 11982 re-rolled — unless the address hands one over, in

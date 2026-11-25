@@ -186,6 +186,28 @@ ok("search ends within its budget", fc.game.solving === false);
 ok("small budget says no solution", doc.getElementById("status").textContent.includes("no solution"));
 ok("progress bar hidden again", !doc.getElementById("solvebar").classList.contains("on"));
 
+// the hint: the search's plan, one move of it. Four cards short of
+// a win — the kings and queens of spades and hearts in one column,
+// nothing autoplay-safe at the top — every plan opens by moving
+// the king of spades, and the autoplay behind it finishes the game
+{
+  const toJs = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+  const head = (col) => { const pile = toJs(toJs(fc.game.board.cascades)[col]); return pile.length ? pile[0].suit.$ + "-" + pile[0].rank.$ : null; };
+  const reset = () => { fc.game.moves = 0; fc.game.past.length = 0; fc.game.future.length = 0; };
+  fc.game.board = Board(
+    [[Card("Spades", "King"), Card("Spades", "Queen"), Card("Hearts", "King"), Card("Hearts", "Queen")],
+     [], [], [], [], [], [], []],
+    [null, null, null, null], [11, 11, 13, 13]);
+  fc.render(); reset();
+  await fc.hint();
+  ok("the hint spends one move", fc.game.moves === 1);
+  ok("the plan opens by moving the king of spades", head(0) === "Spades-Queen");
+  ok("the hint says its move in words",
+     doc.getElementById("status").textContent.includes("a hint: park the king of spades") ||
+     doc.getElementById("status").textContent.includes("a hint: move the king of spades"));
+  ok("the hint names the plan", doc.getElementById("status").textContent.includes("one move of the plan"));
+}
+
 // a redeal settles every card into its column's paint order
 await fc.newGame(2);
 await sleep(320);

@@ -470,6 +470,43 @@ try {
           homed.moves === 1 && JSON.stringify(homed.founds) === "[1,0,0,0]");
   }
 
+  // 10. the hint button: four cards short of a win, one click plays
+  // one move of the plan — the king of spades always moves first
+  {
+    const Con = (h, t) => ({$: "Con", head: h, tail: t});
+    const Nil = {$: "Nil"};
+    const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+    const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+    const lay = (board) => page.evaluate((board) => {
+      const fc = window.freecell;
+      fc.game.board = board;
+      fc.game.moves = 0;
+      fc.game.past.length = 0;
+      fc.game.future.length = 0;
+      fc.render();
+      return true;
+    }, board);
+    check("the hint board is laid", await lay({$: "Board",
+      cascades: list([list([Card("Spades", "King"), Card("Spades", "Queen"),
+                            Card("Hearts", "King"), Card("Hearts", "Queen")]),
+                      Nil, Nil, Nil, Nil, Nil, Nil, Nil]),
+      cells: list([{$: "None"}, {$: "None"}, {$: "None"}, {$: "None"}]),
+      founds: list([11, 11, 13, 13])}) === true);
+    await sleep(350); // let the surgery's own glides land before aiming
+    await page.click("#hint");
+    await sleep(700); // the search is one level, the play one beat
+    const hinted = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toA = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      const col0 = toA(toA(fc.game.board.cascades)[0]);
+      return {moves: fc.game.moves, head0: col0.length ? col0[0].suit.$ + "-" + col0[0].rank.$ : null,
+              status: document.getElementById("status").textContent};
+    });
+    check("the hint played one move of the plan",
+          hinted.moves === 1 && hinted.status.includes("a hint:") && hinted.status.includes("one move of the plan"));
+    check("the plan moved the king of spades", hinted.head0 === "Spades-Queen");
+  }
+
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);
