@@ -469,7 +469,41 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
   ok("three cards parked, one apiece", fc.game.moves === 3 && cells()[0] === "Hearts-Three" && cells()[2] === "Diamonds-Five");
 }
 
-// the stepping protocol, straight through the page's own module
+// a card homes to its own suit's foundation, and to no other: the
+// page lights the one slot, and refuses a drop on the rest
+{
+  const grab = {kind: "cascade", idx: 0, upto: 0};
+  fc.game.board = Board([[Card("Spades", "Ace")], [], [], [], [], [], [], []], [null, null, null, null], [0, 0, 0, 0]);
+  fc.render();
+  ok("the ace of spades homes only to its own slot",
+     fc.moveFor(grab, {kind: "foundation", idx: 0}).$ === "CascadeToFoundation"
+     && fc.moveFor(grab, {kind: "foundation", idx: 1}) === null
+     && fc.moveFor(grab, {kind: "foundation", idx: 2}) === null
+     && fc.moveFor(grab, {kind: "foundation", idx: 3}) === null);
+  // the reordered tail: the ace of clubs belongs to the third slot
+  fc.game.board = Board([[Card("Clubs", "Ace")], [], [], [], [], [], [], []], [null, null, null, null], [0, 0, 0, 0]);
+  fc.render();
+  ok("the ace of clubs homes only to the third slot",
+     fc.moveFor(grab, {kind: "foundation", idx: 2}).$ === "CascadeToFoundation"
+     && fc.moveFor(grab, {kind: "foundation", idx: 0}) === null);
+  // a cell card homes the same way: its own suit, or nothing
+  fc.game.board = Board([[], [], [], [], [], [], [], []], [Card("Diamonds", "Ace"), null, null, null], [0, 0, 0, 0]);
+  fc.render();
+  const cellGrab = {kind: "cell", idx: 0, upto: 0};
+  ok("a cell's ace homes only to its own slot",
+     fc.moveFor(cellGrab, {kind: "foundation", idx: 3}).$ === "CellToFoundation"
+     && fc.moveFor(cellGrab, {kind: "foundation", idx: 1}) === null);
+}
+
+// the stepping protocol, straight through the page's own module —
+// on a board of its own, not whatever the last section left
+fc.game.board = Board(
+  [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")],
+   [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+   [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+   [Card("Diamonds", "Nine")]],
+  [null, null, null, null], [0, 0, 0, 0]);
+fc.render();
 let state = fc.F.first(fc.game.board, 200);
 ok("search opens as a beam", state.$ === "Beam" && state.level === 200);
 state = fc.F.step(state);

@@ -414,6 +414,62 @@ try {
     check("the five of diamonds is left working", parked.working);
   }
 
+  // 9. a card homes to its own suit's foundation: selecting an ace
+  // lights its one slot — not all four — and only that slot takes
+  // the drop
+  {
+    const Con = (h, t) => ({$: "Con", head: h, tail: t});
+    const Nil = {$: "Nil"};
+    const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+    const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+    const lay = (board) => page.evaluate((board) => {
+      const fc = window.freecell;
+      fc.game.board = board;
+      fc.game.moves = 0;
+      fc.game.past.length = 0;
+      fc.game.future.length = 0;
+      fc.render();
+      return true;
+    }, board);
+    check("the ace board is laid", await lay({$: "Board",
+      cascades: list([list([Card("Spades", "Ace")]), Nil, Nil, Nil, Nil, Nil, Nil, Nil]),
+      cells: list([{$: "None"}, {$: "None"}, {$: "None"}, {$: "None"}]),
+      founds: list([0, 0, 0, 0])}) === true);
+    await sleep(350);
+    const center = async (i) => page.evaluate((i) => {
+      const r = document.querySelectorAll("#slots .slot")[i].getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    }, i);
+    const ace = await page.evaluate(() => {
+      const r = document.querySelector('[data-key="Spades-Ace"]').getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    });
+    await page.mouse.click(ace.x, ace.y);    // select the ace
+    await sleep(30);
+    const lit = await page.evaluate(() =>
+      [...document.querySelectorAll("#slots .slot")].slice(4, 8).map((el) => el.classList.contains("legal")));
+    check("only the spade foundation lights", lit.join(" ") === "true false false false");
+    const wrong = await center(6);           // the club foundation — unlit
+    await page.mouse.click(wrong.x, wrong.y);
+    await sleep(120);
+    const refused = await page.evaluate(() => ({
+      moves: window.freecell.game.moves,
+      status: document.getElementById("status").textContent}));
+    check("the wrong foundation refuses the drop", refused.moves === 0 && refused.status === "illegal move");
+    await page.mouse.click(ace.x, ace.y);    // select the ace again
+    await sleep(30);
+    const home = await center(4);           // the spade foundation — lit
+    await page.mouse.click(home.x, home.y);
+    await sleep(350);
+    const homed = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toA = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      return {moves: fc.game.moves, founds: toA(fc.game.board.founds)};
+    });
+    check("its own foundation takes it home (" + homed.moves + " move)",
+          homed.moves === 1 && JSON.stringify(homed.founds) === "[1,0,0,0]");
+  }
+
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);

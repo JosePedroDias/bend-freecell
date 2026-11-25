@@ -565,17 +565,42 @@ function markSelected(src) {
 
 const canMove = (m) => F.canMove(game.board, m) === true; // a bend Bool is a native boolean here
 
+// the card a grabbed source holds: a cascade's working card, or
+// the cell's card
+function heldOf(src) {
+  if (src.kind === "cascade") {
+    const pile = toArr(toArr(game.board.cascades)[src.idx] || {$: "Nil"});
+    return pile.length ? pile[0] : null;
+  }
+  if (src.kind === "cell") {
+    const slot = toArr(game.board.cells)[src.idx];
+    return slot && slot.$ === "Some" ? slot.value : null;
+  }
+  return null;
+}
+
+// the foundation a card belongs to: its suit's slot — the page's
+// suit order is the foundations' own
+const foundOf = (card) => SUITS.indexOf(card.suit.$);
+
 // the move a source and a slot ask for, or null when the rules
 // would never allow the pair (a cell onto a cell, a home card into
-// a cell, say)
+// a cell, a card onto a foundation not its suit's, say)
 function moveFor(src, slot) {
   if (src.kind === "cascade") {
     if (slot.kind === "cell") return M.cascadeToCell(src.idx, slot.idx);
     if (slot.kind === "cascade") return M.cascadeToCascade(src.idx, slot.idx);
-    if (slot.kind === "foundation") return M.cascadeToFoundation(src.idx);
+    if (slot.kind === "foundation") {
+      // a card homes to its own suit's foundation — the one slot
+      const held = heldOf(src);
+      return held && slot.idx === foundOf(held) ? M.cascadeToFoundation(src.idx) : null;
+    }
   } else if (src.kind === "cell") {
     if (slot.kind === "cascade") return M.cellToCascade(src.idx, slot.idx);
-    if (slot.kind === "foundation") return M.cellToFoundation(src.idx);
+    if (slot.kind === "foundation") {
+      const held = heldOf(src);
+      return held && slot.idx === foundOf(held) ? M.cellToFoundation(src.idx) : null;
+    }
   } else if (src.kind === "foundation") {
     // the pull: a home card comes back down, onto a column only
     if (slot.kind === "cascade") return M.foundationToCascade(src.idx, slot.idx);
@@ -596,7 +621,8 @@ function markLegal(src) {
     // parks in the free cells, one card apiece
     if (src.upto === 0) {
       for (let c = 0; c < 4; c++) if (canMove(M.cascadeToCell(src.idx, c))) slotEls.cell[c].classList.add("legal");
-      if (canMove(M.cascadeToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
+      const held = heldOf(src);
+      if (held && canMove(M.cascadeToFoundation(src.idx))) slotEls.foundation[foundOf(held)].classList.add("legal");
     } else {
       for (let c = 0; c < 4; c++) if (cellsPlay(src.idx, src.upto, c)) slotEls.cell[c].classList.add("legal");
     }
@@ -605,7 +631,8 @@ function markLegal(src) {
     for (let t = 0; t < 8; t++) if (canMove(M.foundationToCascade(src.idx, t))) slotEls.cascade[t].classList.add("legal");
   } else {
     for (let t = 0; t < 8; t++) if (canMove(M.cellToCascade(src.idx, t))) slotEls.cascade[t].classList.add("legal");
-    if (canMove(M.cellToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
+    const held = heldOf(src);
+    if (held && canMove(M.cellToFoundation(src.idx))) slotEls.foundation[foundOf(held)].classList.add("legal");
   }
 }
 
@@ -1071,7 +1098,7 @@ async function playCells(col, upto, cell) {
 }
 
 // a handle for the console, and for the page's own tests
-window.freecell = {game, F, newGame, play, playSuper, playCells, smartMove, undo, redo, safeMoves, solve, render, togglePause};
+window.freecell = {game, F, newGame, play, playSuper, playCells, smartMove, moveFor, undo, redo, safeMoves, solve, render, togglePause};
 
 // the page opens the way New deals — a random game from the classic
 // range, 11982 re-rolled — unless the address hands one over, in
