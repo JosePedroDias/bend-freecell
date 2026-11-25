@@ -1,0 +1,5 @@
+# built things — build them again instead of tracking them
+web-dist/
+freecell.html
+solver-bin
+solver

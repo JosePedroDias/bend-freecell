@@ -7,7 +7,8 @@ Freecell in Bend 2, end to end:
 - the law/proof gate in `LAWS.bend` and `PROOF.bend`,
 - a terminal game in `terminal-game.bend`,
 - a beam-search solver in `solver.bend`,
-- and an authoritative HTTP server in `server.bend`.
+- an authoritative HTTP server in `server.bend`,
+- and a browser game in `web.html`, bundled by `./build-web.sh`.
 
 
 ## The documents
@@ -27,6 +28,33 @@ Freecell in Bend 2, end to end:
 
 
 ## Usage
+
+### Play in the browser
+
+```bash
+./build-web.sh          # writes freecell.html: one self-contained file
+open freecell.html      # or just double-click it
+```
+
+The page is the compiled game. Bend bundles `web.html` — its SVG
+interface and the bend code it imports, through `web.bend` — into
+one JavaScript chunk, and `build-web.sh` splices that chunk back
+into the page. The result opens with a double-click: no server, no
+network, one file. Every game decision — the deal, the legality of
+a move, the board it produces, the win, the safe home moves, the
+search — is a call into the bundled checked code; the page only
+draws the answers and reads the clicks.
+
+Drag a card, or click a card and then its destination;
+double-click sends a card home when the rules allow it. `Undo`
+and `Redo` walk the history, `Safe` plays every safe home move at
+once, and `Solve` beam-searches for a winning line — one level
+per beat, with a progress bar, so the page never freezes — then
+offers to play the line move by move. The clock starts with the
+deal; `Pause` (or `p`) holds it and hides the cards, so a break
+is not on the record. `New` deals a random
+solvable game (the classic range, 11982 re-rolled); a number and
+`Deal` deal exactly that game.
 
 ### Play the terminal game
 

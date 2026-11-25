@@ -833,12 +833,20 @@ def Beam.tramp(fuel: Nat, m: Search) -> Search:
 
 # --- The entry --------------------------------------------------
 
-def Solver.begin(autod: F.Board & +List<F.Move>, +levels: Nat) -> Search:
-  # the opening home moves belong to the line; the root's cost
-  # counts none of them, as it always has
+def Solver.first(autod: F.Board & +List<F.Move>, levels: Nat) -> Search:
+  # the search's opening state: the root entry in a one-wide beam,
+  # the level budget full. The opening home moves belong to the
+  # line; the root's cost counts none of them, as it always has.
+  # A driver that steps this state with Beam.step walks the very
+  # search Beam.tramp would run — the browser page does exactly
+  # that, one level per frame gap
   (+b2, autos) = autod
   +root = {Entry{b2, Trail.push_list(autos, Start{}), 0, Beam.cost_of(b2, 0), Key.board(b2)} : Entry}
-  Beam.tramp(levels, Beam{root <> {Nil{} : +List<Entry>}, levels, Map.set(&2, Unit, Map.new(&2, Unit), Beam.key_of(root), Unit{})})
+  Beam{root <> {Nil{} : +List<Entry>}, levels, Map.set(&2, Unit, Map.new(&2, Unit), Beam.key_of(root), Unit{})}
+
+def Solver.begin(autod: F.Board & +List<F.Move>, +levels: Nat) -> Search:
+  # the whole search: the opening state, run to its answer
+  Beam.tramp(levels, Solver.first(autod, levels))
 
 def Solver.solve(levels: Nat, board: F.Board) -> Search:
   # beam-search a board with a level budget

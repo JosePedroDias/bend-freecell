@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeCell</title>
+<style>
+  :root {
+    --felt-a: #1d6b40;
+    --felt-b: #124d2d;
+    --ink: #1e2126;
+    --red: #c0362c;
+    --accent: #ffd54f;
+    --panel: rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: #f2f2ee;
+    background: radial-gradient(120% 90% at 50% 0%, var(--felt-a), var(--felt-b));
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    background: var(--panel);
+    backdrop-filter: blur(4px);
+  }
+  header h1 {
+    font: 700 17px/1 inherit;
+    letter-spacing: 0.12em;
+    margin: 0 10px 0 0;
+  }
+  button, input {
+    font: inherit;
+    color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    padding: 5px 13px;
+    cursor: pointer;
+  }
+  button:hover, input:hover { background: rgba(255, 255, 255, 0.16); }
+  button:active { transform: translateY(1px); }
+  button.busy { outline: 2px solid var(--accent); }
+  button:disabled, button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+  input { width: 5.5em; text-align: center; cursor: text; }
+  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  #status { margin-left: auto; opacity: 0.92; white-space: nowrap; }
+  #status.flash { color: var(--accent); }
+  #gameline { opacity: 0.75; white-space: nowrap; }
+  #clock { opacity: 0.75; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* pause: the cards vanish from the table, the clock holds */
+  svg#table.paused #cards { visibility: hidden; }
+  #veil {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 24, 13, 0.30);
+    pointer-events: none;
+    z-index: 4;
+  }
+  #veil.on { display: flex; }
+  #veil div {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    opacity: 0.85;
+  }
+
+  svg#table { flex: 1; width: 100%; min-height: 0; touch-action: none; display: block; }
+
+  /* slots: cells, foundations, cascade bases */
+  .slot {
+    fill: rgba(255, 255, 255, 0.04);
+    stroke: rgba(255, 255, 255, 0.28);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 5;
+  }
+  .slot.legal { stroke: var(--accent); fill: rgba(255, 213, 79, 0.10); }
+  .slot.hot   { fill: rgba(255, 213, 79, 0.28); }
+  .wm {
+    font-size: 58px;
+    fill: rgba(255, 255, 255, 0.13);
+    text-anchor: middle;
+    pointer-events: none;
+  }
+
+  /* cards */
+  .card { transition: transform 0.16s ease-out; cursor: pointer; }
+  .card.drag { transition: none; }
+  .card.drag .face { stroke: var(--accent); stroke-width: 2; }
+  .card.selected .face { stroke: var(--accent); stroke-width: 3.5; }
+  .card.refused { animation: refused 0.3s; }
+  .face {
+    fill: #fffdf5;
+    stroke: #b4ad9e;
+    stroke-width: 1;
+  }
+  .idx { font-size: 21px; font-weight: 700; }
+  .pip { font-size: 46px; text-anchor: middle; pointer-events: none; }
+  .card { fill: var(--ink); }
+  .card.red { fill: var(--red); }
+
+  /* overlays */
+  #solvebar {
+    position: fixed;
+    left: 50%;
+    bottom: 34px;
+    transform: translateX(-50%);
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 12px;
+    z-index: 5;
+  }
+  #solvebar.on { display: flex; }
+  #solvebar .bar {
+    width: 180px; height: 8px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.15); overflow: hidden;
+  }
+  #solvebar .bar i { display: block; height: 100%; width: 0%; background: var(--accent); }
+
+  #banner {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(4, 24, 13, 0.72);
+    z-index: 6;
+    text-align: center;
+  }
+  #banner.on { display: flex; }
+  #banner .win {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    animation: pop 0.5s ease-out;
+  }
+  #banner p { margin: 0; opacity: 0.9; }
+
+  footer {
+    padding: 4px 12px 8px;
+    font-size: 12px;
+    opacity: 0.6;
+    text-align: center;
+  }
+
+  @keyframes refused {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+  @keyframes pop {
+    from { transform: scale(0.6); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>FREECELL</h1>
+  <button id="new" title="deal a random solvable game (n)">New</button>
+  <input id="gameno" type="number" min="1" max="32000" value="1" title="game number">
+  <button id="deal" title="deal this game number">Deal</button>
+  <span id="gameline"></span>
+  <span id="clock"></span>
+  <button id="undo" title="undo (u)">Undo</button>
+  <button id="redo" title="redo (r)">Redo</button>
+  <button id="safe" title="send every safe card home (s)">Safe</button>
+  <button id="solve" title="search for a winning line (h)">Solve</button>
+  <button id="playline" hidden title="play the winning line found">Play line</button>
+  <button id="pause" title="pause the clock and hide the cards (p)">Pause</button>
+  <span id="status"></span>
+</header>
+
+<svg id="table" viewBox="0 0 1000 720" preserveAspectRatio="xMidYMid meet" aria-label="the freecell table">
+  <g id="slots"></g>
+  <g id="cards"></g>
+  <g id="flights"></g>
+</svg>
+
+<div id="solvebar">
+  <span id="solvelabel">searching…</span>
+  <div class="bar"><i id="solvefill"></i></div>
+</div>
+
+<div id="veil"><div>⏸ PAUSED</div></div>
+
+<div id="banner">
+  <div class="win">You won! ♠♥♦♣</div>
+  <p id="bannerline"></p>
+  <button id="again">Play again</button>
+</div>
+
+<footer>
+  drag a card, or click a card then its destination · double-click sends a card home ·
+  <b>n</b> new · <b>u</b> undo · <b>r</b> redo · <b>s</b> safe moves · <b>h</b> solve ·
+  <b>p</b> pause
+</footer>
+
+<script type="module">
+// =================================================================
+// The web game: SVG face on the compiled bend rules.
+// =================================================================
+// Every game decision — the deal, the legality of a move, the
+// board it produces, the win, the safe home moves, the search —
+// is a call into the bundled module (imported from ./web.bend,
+// which re-exports freecell.bend and solver.bend). This file only
+// draws the answers and reads the clicks.
+import W from "./web.bend";
+
+const F = {
+  deal:    W["freecell:Board.deal_ms"],
+  apply:   W["freecell:Board.apply"],
+  canMove: W["freecell:Board.can_move"],
+  isWon:   W["freecell:Board.is_won"],
+  autoplay: W["solver:Solver.autoplay"],
+  first:   W["solver:Solver.first"],
+  step:    W["solver:Beam.step"],
+  word:    W["solver:Solve.word"],
+};
+
+// --- the table's geometry ----------------------------------------
+
+const CW = 100, CH = 140;          // a card
+const X0 = 12.5, GX = 125;         // the 8-column grid
+const TOP = 16, CASC = 180;        // the two rows
+const SPAN = 720 - CASC - CH;      // how deep a cascade may reach
+const colX = (i) => X0 + i * GX;
+
+const SUITS = ["Spades", "Hearts", "Diamonds", "Clubs"]; // foundation order
+const RANKS = ["Ace", "Two", "Three", "Four", "Five", "Six", "Seven",
+               "Eight", "Nine", "Ten", "Jack", "Queen", "King"];
+const GLYPH = {Spades: "♠", Hearts: "♥", Diamonds: "♦", Clubs: "♣"};
+const RANK_TXT = {Ace: "A", Two: "2", Three: "3", Four: "4", Five: "5", Six: "6",
+                  Seven: "7", Eight: "8", Nine: "9", Ten: "10", Jack: "J",
+                  Queen: "Q", King: "K"};
+
+const cardOf = (suitIdx, rIdx) =>
+  ({$: "Card", suit: {$: SUITS[suitIdx]}, rank: {$: RANKS[rIdx]}});
+const keyOf = (c) => c.suit.$ + "-" + c.rank.$;
+const toArr = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+
+// the five moves, as bend values
+const M = {
+  cascadeToCell:       (col, cell) => ({$: "CascadeToCell", col, cell}),
+  cascadeToCascade:   (col, col2) => ({$: "CascadeToCascade", col, col2}),
+  cascadeToFoundation: (col)      => ({$: "CascadeToFoundation", col}),
+  cellToCascade:       (cell, col) => ({$: "CellToCascade", cell, col}),
+  cellToFoundation:    (cell)      => ({$: "CellToFoundation", cell}),
+};
+
+// --- the game state (the board itself is a bend value) -----------
+
+const game = {
+  no: 1,
+  board: null,
+  past: [],      // undo stack: {board, n} — n moves one undo takes back
+  future: [],    // redo stack
+  moves: 0,
+  selected: null, // {kind: "cascade"|"cell", idx}
+  solving: false,
+  cancelSolve: false,
+  playing: false,
+  solution: null,
+  startedAt: 0,  // Date.now() when the current stretch of clock began
+  elapsed: 0,    // ms accumulated before the current stretch
+  paused: false,
+  won: false,
+  finalMs: 0,
+};
+
+// --- dom ---------------------------------------------------------
+
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("table");
+const slotsG = document.getElementById("slots");
+const cardsG = document.getElementById("cards");
+const flightsG = document.getElementById("flights");
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status"), gamelineEl = $("gameline");
+
+function mk(tag, attrs) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+// the sixteen outlines: cells, foundations, cascade bases
+const slotEls = {cell: [], foundation: [], cascade: []};
+{
+  const slotAttrs = {class: "slot", width: CW, height: CH, rx: 12};
+  for (let i = 0; i < 4; i++) {
+    const r = mk("rect", {...slotAttrs, x: colX(i), y: TOP});
+    slotsG.appendChild(r); slotEls.cell.push(r);
+  }
+  for (let i = 0; i < 4; i++) {
+    const g = mk("g", {});
+    g.appendChild(mk("rect", {...slotAttrs, x: colX(4 + i), y: TOP}));
+    const wm = mk("text", {class: "wm", x: colX(4 + i) + CW / 2, y: TOP + CH / 2 + 21});
+    wm.textContent = GLYPH[SUITS[i]];
+    g.appendChild(wm);
+    slotsG.appendChild(g); slotEls.foundation.push(g.firstChild);
+  }
+  for (let i = 0; i < 8; i++) {
+    const r = mk("rect", {...slotAttrs, x: colX(i), y: CASC});
+    slotsG.appendChild(r); slotEls.cascade.push(r);
+  }
+}
+
+// --- status ------------------------------------------------------
+
+let statusTimer = 0;
+function say(msg, flash) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle("flash", !!flash);
+  clearTimeout(statusTimer);
+  if (flash) statusTimer = setTimeout(() => statusEl.classList.remove("flash"), 1200);
+}
+function updateChrome() {
+  gamelineEl.textContent = "game " + game.no + " · " + game.moves + " moves";
+  $("undo").disabled = game.past.length === 0;
+  $("redo").disabled = game.future.length === 0;
+}
+
+// --- the clock ---------------------------------------------------
+
+// a stretch of play: from the deal (or the resume) to now
+function elapsedNow() {
+  if (game.paused) return game.elapsed;
+  return game.elapsed + (Date.now() - game.startedAt);
+}
+
+function fmtClock(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? h + ":" + pad(m % 60) + ":" + pad(s % 60) : m + ":" + pad(s % 60);
+}
+
+setInterval(() => {
+  if (!game.board || game.won) return;
+  $("clock").textContent = fmtClock(elapsedNow());
+}, 250);
+
+function togglePause() {
+  if (game.won) return;
+  game.paused = !game.paused;
+  if (game.paused) {
+    game.elapsed += Date.now() - game.startedAt;
+    drag = null;               // a drag in flight ends where it began
+    clearSelection();
+    $("pause").textContent = "Resume";
+    svg.classList.add("paused");
+    $("veil").classList.add("on");
+    render();
+  } else {
+    game.startedAt = Date.now();
+    $("pause").textContent = "Pause";
+    svg.classList.remove("paused");
+    $("veil").classList.remove("on");
+  }
+}
+
+// --- placing and drawing the 52 cards ----------------------------
+
+const cardEls = new Map(); // key -> <g>
+const prevPos = new Map(); // key -> {x, y}, to lift movers to the top
+
+function cardEl(card) {
+  const red = card.suit.$ === "Hearts" || card.suit.$ === "Diamonds";
+  const g = mk("g", {class: "card" + (red ? " red" : "")});
+  g.dataset.key = keyOf(card);
+  g.appendChild(mk("rect", {class: "face", x: 0, y: 0, width: CW, height: CH, rx: 12}));
+  const label = RANK_TXT[card.rank.$] + GLYPH[card.suit.$];
+  const idx = mk("text", {class: "idx", x: 9, y: 26});
+  idx.textContent = label;
+  // the same label, upside down in the opposite corner — the corner
+  // every real card carries, so a card reads from any end you see
+  const idx2 = mk("text", {class: "idx", x: CW - 9, y: CH - 26,
+                           transform: "rotate(180 " + (CW - 9) + " " + (CH - 26) + ")"});
+  idx2.textContent = label;
+  // the big suit, dead center: the glyph's ink rises ~33px above its
+  // baseline at this size, so the baseline sits half that below center
+  const pip = mk("text", {class: "pip", x: CW / 2, y: CH / 2 + 16});
+  pip.textContent = GLYPH[card.suit.$];
+  g.appendChild(idx); g.appendChild(idx2); g.appendChild(pip);
+  return g;
+}
+
+// every card's place on the table: cascades bottom-up, the cells,
+// and every card already home stacked at its foundation. The paint
+// order is the push order — deepest first, so the top card of a
+// cascade is drawn over the cards it buries, and each buried card
+// shows its top strip
+function placements(b) {
+  const out = [];
+  toArr(b.cascades).forEach((pile, i) => {
+    const cards = toArr(pile);   // piles are top-first
+    const n = cards.length;
+    const step = n <= 1 ? 0 : Math.min(32, SPAN / (n - 1));
+    for (let j = n - 1; j >= 0; j--) {
+      out.push({card: cards[j], x: colX(i), y: CASC + (n - 1 - j) * step});
+    }
+  });
+  toArr(b.cells).forEach((slot, i) => {
+    if (slot.$ === "Some") out.push({card: slot.value, x: colX(i), y: TOP});
+  });
+  toArr(b.founds).forEach((count, i) => {
+    for (let r = 0; r < count; r++) out.push({card: cardOf(i, r), x: colX(4 + i), y: TOP});
+  });
+  return out;
+}
+
+// where a card may be picked up from: the top of a cascade, or a cell
+function movableOf(b, key) {
+  const piles = toArr(b.cascades);
+  for (let i = 0; i < piles.length; i++) {
+    const top = toArr(piles[i])[0];
+    if (top && keyOf(top) === key) return {kind: "cascade", idx: i};
+  }
+  const cells = toArr(b.cells);
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i].$ === "Some" && keyOf(cells[i].value) === key) return {kind: "cell", idx: i};
+  }
+  return null;
+}
+
+// The paint order at rest is placements(): deepest first, top card
+// last. Two rules keep the glides alive:
+//   1. re-appending a node is a remove-and-insert, and removing an
+//      element from the document cancels its running transitions —
+//      so a card is never re-appended in the same frame as its
+//      transform changes. Cards changing position ride #flights, a
+//      layer above the resting one, and are moved there *before*
+//      their transform is set.
+//   2. once the flights land (the glide is 160ms; settle waits 220),
+//      settle() re-appends every card into #cards in placement
+//      order — which also keeps the resting order right when a
+//      redeal lands a card exactly where it already was.
+// A mid-flight card is always in #flights, so no re-append ever
+// touches it; a second move in the same breath simply retargets its
+// transition from where it is on screen.
+let paintGen = 0;
+let lastPl = [];
+
+function settle() {
+  if (drag) return; // a card held mid-table stays on top
+  for (const p of lastPl) {
+    const el = cardEls.get(keyOf(p.card));
+    if (el) cardsG.appendChild(el);
+  }
+}
+
+function render() {
+  const gen = ++paintGen;
+  lastPl = placements(game.board);
+  for (const p of lastPl) {
+    const key = keyOf(p.card);
+    let el = cardEls.get(key);
+    if (!el) { el = cardEl(p.card); cardEls.set(key, el); }
+    const was = prevPos.get(key);
+    const moved = !was || was.x !== p.x || was.y !== p.y;
+    if (moved && el.parentNode !== flightsG) flightsG.appendChild(el);
+    el.classList.remove("drag"); // a drop ends the no-transition ride
+    el.style.transform = "translate(" + p.x + "px," + p.y + "px)";
+    el.dataset.x = p.x; el.dataset.y = p.y;
+    prevPos.set(key, {x: p.x, y: p.y});
+  }
+  setTimeout(() => { if (paintGen === gen) settle(); }, 220);
+  updateChrome();
+  checkWon();
+}
+
+function clearSelection() {
+  game.selected = null;
+  for (const el of cardsG.children) el.classList.remove("selected");
+  for (const kind in slotEls) for (const el of slotEls[kind]) el.classList.remove("legal", "hot");
+}
+
+// --- the rules, consulted ---------------------------------------
+
+const canMove = (m) => F.canMove(game.board, m) === true; // a bend Bool is a native boolean here
+
+// the move a source and a slot ask for, or null when the rules
+// would never allow the pair (a cell onto a cell, say)
+function moveFor(src, slot) {
+  if (src.kind === "cascade") {
+    if (slot.kind === "cell") return M.cascadeToCell(src.idx, slot.idx);
+    if (slot.kind === "cascade") return M.cascadeToCascade(src.idx, slot.idx);
+    if (slot.kind === "foundation") return M.cascadeToFoundation(src.idx);
+  } else {
+    if (slot.kind === "cascade") return M.cellToCascade(src.idx, slot.idx);
+    if (slot.kind === "foundation") return M.cellToFoundation(src.idx);
+  }
+  return null;
+}
+
+function markLegal(src) {
+  for (const kind in slotEls) slotEls[kind].forEach((el, i) => {
+    const m = moveFor(src, {kind, idx: i});
+    if (m && canMove(m)) el.classList.add("legal");
+  });
+}
+
+// play one move through the rules; true when it was taken
+function play(move, quiet) {
+  const got = F.apply(game.board, move);
+  if (got.$ !== "Some") {
+    say("illegal move", true);
+    return false;
+  }
+  game.past.push({board: game.board, n: 1});
+  game.future.length = 0;
+  game.board = got.value;
+  game.moves += 1;
+  if (!quiet) say("");
+  render();
+  return true;
+}
+
+function undo() {
+  if (game.paused) return;
+  if (game.solving) game.cancelSolve = true;
+  const e = game.past.pop();
+  if (!e) return;
+  game.future.push({board: game.board, n: e.n});
+  game.board = e.board;
+  game.moves -= e.n;
+  clearSelection();
+  say("");
+  render();
+}
+
+function redo() {
+  if (game.paused) return;
+  if (game.solving) game.cancelSolve = true;
+  const e = game.future.pop();
+  if (!e) return;
+  game.past.push({board: game.board, n: e.n});
+  game.board = e.board;
+  game.moves += e.n;
+  clearSelection();
+  say("");
+  render();
+}
+
+// every safe home move at once, as the solver's autoplay says
+function safeMoves() {
+  if (game.paused) return;
+  if (game.solving) game.cancelSolve = true;
+  const pair = F.autoplay(64, game.board);
+  const moves = toArr(pair.snd);
+  if (moves.length === 0) { say("no safe home moves", true); return; }
+  game.past.push({board: game.board, n: moves.length});
+  game.future.length = 0;
+  game.board = pair.fst;
+  game.moves += moves.length;
+  say(moves.length + (moves.length === 1 ? " card" : " cards") + " home");
+  render();
+}
+
+// --- winning -----------------------------------------------------
+
+function checkWon() {
+  if (game.won || F.isWon(game.board) !== true) return;
+  game.won = true;
+  game.finalMs = elapsedNow();
+  $("clock").textContent = fmtClock(game.finalMs);
+  $("bannerline").textContent = "game " + game.no + " in " + game.moves + " moves · " + fmtClock(game.finalMs);
+  $("banner").classList.add("on");
+}
+
+// --- the search, one level at a time ------------------------------
+
+const SOLVE_LEVELS = 200;
+
+async function solve(levels) {
+  const budget = levels || SOLVE_LEVELS;
+  if (game.paused) return;
+  if (game.solving) { game.cancelSolve = true; return; }  // second click: cancel
+  if (game.playing) return;
+  game.solving = true;
+  game.cancelSolve = false;
+  game.solution = null;
+  $("solve").textContent = "Cancel";
+  $("solve").classList.add("busy");
+  $("solvebar").classList.add("on");
+  clearSelection();
+  try {
+    let state = F.first(F.autoplay(64, game.board), budget);
+    let level = 0;
+    while (state.$ === "Beam") {
+      if (game.cancelSolve) break;
+      state = F.step(state);
+      level = budget - (state.$ === "Beam" ? state.level : 0);
+      $("solvelabel").textContent = "searching · level " + level;
+      $("solvefill").style.width = (100 * level / budget) + "%";
+      await new Promise((ok) => setTimeout(ok, 0)); // let the page breathe
+    }
+    if (state.$ === "Solved") {
+      game.solution = toArr(state.line);
+      say("solves in " + game.solution.length + " moves", true);
+      $("playline").hidden = false;
+    } else if (game.cancelSolve) {
+      say("search cancelled");
+    } else {
+      say("no solution found within the beam budgets", true);
+    }
+  } finally {
+    game.solving = false;
+    $("solve").textContent = "Solve";
+    $("solve").classList.remove("busy");
+    $("solvebar").classList.remove("on");
+  }
+}
+
+// play the found line, one move a beat — the rules check every one
+async function playLine() {
+  if (!game.solution || game.playing || game.paused) return;
+  game.playing = true;
+  $("playline").hidden = true;
+  for (const move of game.solution) {
+    if (game.paused) { say("the line stopped — the game is paused"); break; }
+    if (!play(move, true)) { say("the line broke — the board changed", true); break; }
+    await new Promise((ok) => setTimeout(ok, 240));
+  }
+  game.playing = false;
+}
+
+// --- new games ---------------------------------------------------
+
+function newGame(no) {
+  if (game.solving) game.cancelSolve = true;
+  // the clock starts with the deal; a pause does not survive it
+  game.paused = false;
+  game.won = false;
+  game.elapsed = 0;
+  game.startedAt = Date.now();
+  $("pause").textContent = "Pause";
+  svg.classList.remove("paused");
+  $("veil").classList.remove("on");
+  game.no = no;
+  game.board = F.deal(no);
+  game.past.length = 0;
+  game.future.length = 0;
+  game.moves = 0;
+  game.solution = null;
+  $("playline").hidden = true;
+  $("banner").classList.remove("on");
+  clearSelection();
+  say("");
+  render();
+}
+
+function randomGame() {
+  let n;
+  do { n = 1 + Math.floor(Math.random() * 32000); } while (n === 11982);
+  $("gameno").value = n;
+  newGame(n);
+}
+
+// --- pointer play: drag, drop, click, double-click ---------------
+
+function svgPoint(e) {
+  const ctm = svg.getScreenCTM && svg.getScreenCTM();
+  if (!ctm) return {x: 0, y: 0};
+  const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+  return {x: p.x, y: p.y};
+}
+
+// which slot a point sits over: a column holds a cell or foundation
+// above, a cascade below
+function slotAt(p) {
+  const col = Math.floor((p.x - X0) / GX);
+  if (col < 0 || col > 7) return null;
+  const cx = colX(col);
+  if (p.x < cx || p.x > cx + CW) return null;
+  if (p.y >= TOP && p.y <= TOP + CH) return col < 4 ? {kind: "cell", idx: col} : {kind: "foundation", idx: col - 4};
+  if (p.y >= CASC - 8) return {kind: "cascade", idx: col};
+  return null;
+}
+
+let drag = null; // {src, key, el, offX, offY, startX, startY, moved}
+
+svg.addEventListener("pointerdown", (e) => {
+  if (game.solving || game.playing || game.paused) return;
+  const cardG = e.target.closest ? e.target.closest(".card") : null;
+  const p = svgPoint(e);
+  if (!cardG) {
+    // a click off every card: an empty cell, an empty cascade, the felt.
+    // With a card selected, it is where the player is aiming.
+    if (game.selected) { const s = game.selected; clearSelection(); tryTarget(slotAt(p), s); }
+    return;
+  }
+  const key = cardG.dataset.key;
+  const src = movableOf(game.board, key);
+  if (!src) {
+    // a buried card or one already home: the rules have no move from it.
+    // With a card selected, the click still names a destination.
+    if (game.selected) { const s = game.selected; clearSelection(); tryTarget(slotAt(p), s); }
+    return;
+  }
+  const grabX = p.x - +cardG.dataset.x;
+  const grabY = p.y - +cardG.dataset.y;
+  drag = {src, key, el: cardG, offX: grabX, offY: grabY, startX: p.x, startY: p.y, moved: false};
+  svg.setPointerCapture(e.pointerId);
+});
+
+// a second click, when a card is already selected: aim it somewhere
+function tryTarget(slot, src) {
+  if (!slot) return;
+  const m = moveFor(src, slot);
+  if (m && canMove(m)) play(m);
+  else say("illegal move", true);
+}
+
+svg.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const p = svgPoint(e);
+  if (!drag.moved) {
+    if (Math.hypot(p.x - drag.startX, p.y - drag.startY) < 6) return;
+    drag.moved = true;
+    clearSelection();
+    drag.el.classList.add("drag");
+    if (drag.el.parentNode !== flightsG) flightsG.appendChild(drag.el);
+    markLegal(drag.src);
+  }
+  drag.el.style.transform = "translate(" + (p.x - drag.offX) + "px," + (p.y - drag.offY) + "px)";
+  const slot = slotAt(p);
+  for (const kind in slotEls) slotEls[kind].forEach((el, i) =>
+    el.classList.toggle("hot", !!slot && slot.kind === kind && slot.idx === i && el.classList.contains("legal")));
+});
+
+svg.addEventListener("pointerup", (e) => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  if (d.moved) {
+    const p = svgPoint(e);
+    const slot = slotAt(p);
+    const m = slot && moveFor(d.src, slot);
+    clearSelection();
+    if (m && canMove(m)) play(m); else render();  // render: glide home
+    return;
+  }
+  // a plain click: select, or aim a selection
+  if (game.selected) {
+    const s = game.selected;
+    const same = s.kind === d.src.kind && s.idx === d.src.idx;
+    clearSelection();
+    if (!same) tryTarget(slotAt(svgPoint(e)), s); // the same card: just deselect
+    return;
+  }
+  clearSelection();
+  game.selected = d.src;
+  d.el.classList.add("selected");
+  markLegal(d.src);
+  say("");
+});
+
+svg.addEventListener("dblclick", (e) => {
+  if (game.paused) return;
+  const cardG = e.target.closest ? e.target.closest(".card") : null;
+  if (!cardG) return;
+  const src = movableOf(game.board, cardG.dataset.key);
+  if (!src) return;
+  const m = src.kind === "cascade" ? M.cascadeToFoundation(src.idx) : M.cellToFoundation(src.idx);
+  if (canMove(m)) play(m); else say("that card cannot go home", true);
+});
+
+// --- the buttons, the keys ---------------------------------------
+
+$("new").addEventListener("click", randomGame);
+$("deal").addEventListener("click", () => {
+  const n = Math.max(1, Math.min(32000, Math.floor(+$("gameno").value || 1)));
+  $("gameno").value = n;
+  newGame(n);
+});
+$("undo").addEventListener("click", undo);
+$("redo").addEventListener("click", redo);
+$("safe").addEventListener("click", safeMoves);
+$("solve").addEventListener("click", () => solve());
+$("playline").addEventListener("click", playLine);
+$("pause").addEventListener("click", togglePause);
+$("again").addEventListener("click", randomGame);
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const k = e.key.toLowerCase();
+  if (k === "p") { togglePause(); return; }
+  if (game.paused) return; // while paused, only the pause key answers
+  if (k === "u") undo();
+  else if (k === "r") redo();
+  else if (k === "n") randomGame();
+  else if (k === "s") safeMoves();
+  else if (k === "h") solve();
+});
+
+// a handle for the console, and for the page's own tests
+window.freecell = {game, F, newGame, play, undo, redo, safeMoves, solve, render, togglePause};
+
+newGame(1);
+</script>
+</body>
+</html>
