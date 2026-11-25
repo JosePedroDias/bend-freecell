@@ -210,9 +210,14 @@ bend server.bend 9090        # another port
 
 The state lives in the server and nowhere else: every move is
 checked against the rules before it is believed, and several
-games can be open at once, each named by its number. Requests
-speak HTTP/1.1 and each connection carries one request, closed
-by its answer — the reply says `Connection: close`:
+games can be open at once, each named by its number. Bring a
+cookie — `sid=alice` — and the games you ask for are alice's
+alone, kept under her name and resumed on every visit; the
+shared games answer anyone, and a session the server has not
+seen for an hour is wiped clean. `GET /games` lists the shared
+games only — one player's sessions are nobody else's business.
+Requests speak HTTP/1.1 and each connection carries one request,
+closed by its answer — the reply says `Connection: close`:
 
 ```bash
 curl localhost:8080/1               # deal game 1, see it as JSON
@@ -226,7 +231,8 @@ curl localhost:8080/1 -d "s"        # every safe home move
 curl localhost:8080/1 -d "d"        # the same game, dealt afresh
 curl localhost:8080/random          # a random solvable game
 curl localhost:8080/1 -d "h"        # the commands, as JSON
-curl localhost:8080/games            # the open games
+curl localhost:8080/games           # the open games
+curl -b "sid=alice" localhost:8080/12 -d "1 a"   # alice's own game 12
 ```
 
 Answers are JSON: the whole board — `moves` (how many single

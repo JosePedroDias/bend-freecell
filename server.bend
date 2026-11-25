@@ -12,7 +12,10 @@ import ./plays.bend as P
 #
 # The state lives here and nowhere else: no move is believed until
 # the rules approve it. Each connection carries one request, and
-# the answer closes it — HTTP/1.1, saying so with Connection: close:
+# the answer closes it — HTTP/1.1, saying so with Connection: close.
+# Bring a cookie — sid=alice — and the games you ask for are yours
+# alone, kept under your name; the shared games answer anyone, and
+# a session the server has not seen for an hour is wiped clean:
 #
 #   curl localhost:8080/1              # deal game 1, see it as JSON
 #   curl localhost:8080/1 -d "1 a"     # a move, the terminal game's words
@@ -25,6 +28,7 @@ import ./plays.bend as P
 #   curl localhost:8080/1 -d "e 3"     # the spade foundation's top, back down
 #   curl localhost:8080/random         # a random solvable game
 #   curl localhost:8080/games          # the open games
+#   curl -b "sid=alice" localhost:8080/12 -d "1 a"   # alice's own game 12
 #
 # Answers are JSON — the whole board, or {"error": ...} with a 4xx.
 # Commands are the terminal game's own words, so a whole winning
@@ -39,10 +43,11 @@ type Entry is Data:
   Entry{board: F.Board, n: U32}
 
 # one game's whole truth: where it stands, every board it has stood
-# at, every board it can stand at again, and how many single moves
-# brought it here
+# at, every board it can stand at again, how many single moves
+# brought it here, when the server last saw it, and the name of the
+# session it belongs to — None, the shared game anyone may ask for
 type Session is Data:
-  Session{board: F.Board, past: +List<Entry>, future: +List<Entry>, moves: U32}
+  Session{board: F.Board, past: +List<Entry>, future: +List<Entry>, moves: U32, seen: Nat, named: Maybe<&2, String>}
 
 # the server's answer: an HTTP status and a JSON body
 type Response is Data:
@@ -58,6 +63,11 @@ type Req is Data:
   NoRoute{}
   NoMethod{method: String}
   Oops{msg: String}
+
+# one request, taken whole: what it asks, and the session it
+# claims — None, the shared games
+type Asked is Data:
+  Asked{req: Req, sid: Maybe<&2, String>}
 
 # --- The state as JSON --------------------------------------------
 
@@ -200,19 +210,48 @@ def Json.board_state(+game: U32, +moves: U32, board: F.Board) -> String:
 def Json.state(+game: U32, s: Session) -> String:
   # a session as one JSON object
   match s:
-    case Session{+board, _, _, +moves}:
+    case Session{+board, _, _, +moves, _, _}:
       Json.board_state(game, moves, board)
 
 # --- The router: the house's whole authority ---------------------
 
-def House.fresh(+game: U32) -> Session:
-  # a game's opening session: its deal, and no history yet
-  Session{F.Board.deal_ms(game), {Nil{} : +List<Entry>}, {Nil{} : +List<Entry>}, 0}
+def House.fresh(+game: U32, sid: Maybe<&2, String>, +now: Nat) -> Session:
+  # a game's opening session: its deal, and no history yet, seen
+  # just now, under the name it was asked for
+  Session{F.Board.deal_ms(game), {Nil{} : +List<Entry>}, {Nil{} : +List<Entry>}, 0, now, sid}
 
 def House.empty() -> Session:
   # the never-read default: the empty board can never be a live
-  # session — the deck is somewhere, a law
-  Session{F.Board.empty(), {Nil{} : +List<Entry>}, {Nil{} : +List<Entry>}, 0}
+  # session — the deck is somewhere, a law. Born stale and
+  # unnamed, the sweep would take it at once
+  Session{F.Board.empty(), {Nil{} : +List<Entry>}, {Nil{} : +List<Entry>}, 0, 0n, None{}}
+
+def House.seen_of(s: Session) -> Nat:
+  # when the server last saw the session
+  match s:
+    case Session{_, _, _, _, +seen, _}:
+      seen
+
+def House.named_of(s: Session) -> Maybe<&2, String>:
+  # the session's name — None, the shared game
+  match s:
+    case Session{_, _, _, _, _, +named}:
+      named
+
+def House.touched(s: Session, +now: Nat) -> Session:
+  # the same session, seen just now — its lease renewed
+  match s:
+    case Session{+board, +past, +future, +moves, _, +named}:
+      Session{board, past, future, moves, now, named}
+
+def House.key_of(sid: Maybe<&2, String>, +game: U32) -> String:
+  # a game's key in the map: its number alone for the shared game,
+  # the session's name in front of it when a client claims one
+  match sid:
+    case Some{+s}:
+      s ++ "/" ++ U32.show(game)
+    case None{}:
+      U32.show(game)
 
 def House.session_get(pair: +Map<Session> & Session) -> Session:
   # the map back, the session kept
@@ -223,36 +262,43 @@ def House.session_of(games: +Map<Session>, +key: String) -> Session:
   # the session behind a key, once has said it is there
   House.session_get(Map.get(Session, House.empty(), games, key))
 
-def House.pick_session(present: Bool, +games: +Map<Session>, +game: U32) -> +Map<Session> & Session:
-  # the session found, or the deal a first reference deserves
+def House.session_kept(+games: +Map<Session>, +key: String, +now: Nat) -> +Map<Session> & Session:
+  # a session found: its lease renewed, its place kept
+  (Map.set(&2, Session, games, key, House.touched(House.session_of(games, key), now)),
+   House.touched(House.session_of(games, key), now))
+
+def House.pick_session(present: Bool, +games: +Map<Session>, +key: String, +game: U32, +sid: Maybe<&2, String>, +now: Nat) -> +Map<Session> & Session:
+  # the session found — its lease renewed — or the deal a first
+  # reference deserves
   match present:
     case True{}:
-      (games, House.session_of(games, U32.show(game)))
+      House.session_kept(games, key, now)
     case False{}:
-      (Map.set(&2, Session, games, U32.show(game), House.fresh(game)), House.fresh(game))
+      (Map.set(&2, Session, games, key, House.fresh(game, sid, now)), House.fresh(game, sid, now))
 
-def House.session_pick(pair: +Map<Session> & Bool, +game: U32) -> +Map<Session> & Session:
+def House.session_pick(pair: +Map<Session> & Bool, +key: String, +game: U32, +sid: Maybe<&2, String>, +now: Nat) -> +Map<Session> & Session:
   # the map back beside its answer about the game
   (games2, present) = pair
-  House.pick_session(present, games2, game)
+  House.pick_session(present, games2, key, game, sid, now)
 
-def House.session(games: +Map<Session>, +game: U32) -> +Map<Session> & Session:
-  # a game's session, dealt on first sight
-  House.session_pick(Map.has(&2, Session, games, U32.show(game)), game)
+def House.session(games: +Map<Session>, +game: U32, +sid: Maybe<&2, String>, +now: Nat) -> +Map<Session> & Session:
+  # a game's session under the name it was asked for, dealt on
+  # first sight, its lease renewed on every sight
+  House.session_pick(Map.has(&2, Session, games, House.key_of(sid, game)), House.key_of(sid, game), game, sid, now)
 
 def House.board_of(s: Session) -> F.Board:
   match s:
-    case Session{+board, _, _, _}:
+    case Session{+board, _, _, _, _, _}:
       board
 
 def House.moves_of(s: Session) -> U32:
   match s:
-    case Session{_, _, _, +n}:
+    case Session{_, _, _, +n, _, _}:
       n
 
 def House.store(+games: +Map<Session>, +game: U32, +s2: Session) -> +Map<Session> & Session:
-  # a session put back
-  (Map.set(&2, Session, games, U32.show(game), s2), s2)
+  # a session put back, under the name it carries
+  (Map.set(&2, Session, games, House.key_of(House.named_of(s2), game), s2), s2)
 
 def House.err(+games: +Map<Session>, +code: U32, +why: String, +msg: String) -> +Map<Session> & Response:
   # games unchanged, the refusal said as JSON
@@ -265,10 +311,10 @@ def House.stored(pair: +Map<Session> & Session, +game: U32) -> +Map<Session> & R
 
 def House.stepped(s: Session, +b2: F.Board, +n: U32) -> Session:
   # a legal move: the new board, the old one remembered with its
-  # cost, the future dead
+  # cost, the future dead — the lease and the name carried over
   match s:
-    case Session{+board, +past, _, +moves}:
-      Session{b2, Entry{board, n} <> past, {Nil{} : +List<Entry>}, (moves + n : U32)}
+    case Session{+board, +past, _, +moves, +seen, +named}:
+      Session{b2, Entry{board, n} <> past, {Nil{} : +List<Entry>}, (moves + n : U32), seen, named}
 
 def House.applied_n(got: Maybe<&2, F.Board>, +n: U32, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   # the rules' verdict on a move, with its cost
@@ -293,13 +339,13 @@ def House.went_back(past: +List<Entry>, +games: +Map<Session>, +game: U32, s: Se
       House.err(games, 409, "Conflict", "nothing to undo")
     case Entry{+old, +n} <> rest:
       match s:
-        case Session{+board, _, +future, +moves}:
+        case Session{+board, _, +future, +moves, +seen, +named}:
           House.stored(House.store(games, game,
-            Session{old, rest, Entry{board, n} <> future, U32.sub(moves, n)}), game)
+            Session{old, rest, Entry{board, n} <> future, U32.sub(moves, n), seen, named}), game)
 
 def House.undo(+games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   match s:
-    case Session{_, +past, _, _}:
+    case Session{_, +past, _, _, _, _}:
       House.went_back(past, games, game, s)
 
 def House.went_forward(future: +List<Entry>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
@@ -309,21 +355,21 @@ def House.went_forward(future: +List<Entry>, +games: +Map<Session>, +game: U32, 
       House.err(games, 409, "Conflict", "nothing to redo")
     case Entry{+next, +n} <> rest:
       match s:
-        case Session{+board, +past, _, +moves}:
+        case Session{+board, +past, _, +moves, +seen, +named}:
           House.stored(House.store(games, game,
-            Session{next, Entry{board, n} <> past, rest, (moves + n : U32)}), game)
+            Session{next, Entry{board, n} <> past, rest, (moves + n : U32), seen, named}), game)
 
 def House.redo(+games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   match s:
-    case Session{_, _, +future, _}:
+    case Session{_, _, +future, _, _, _}:
       House.went_forward(future, games, game, s)
 
 def House.applied_board(b2: F.Board, +n: U32, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   # a board already reached, remembered as one step of n moves
   match s:
-    case Session{+board, +past, _, +moves}:
+    case Session{+board, +past, _, +moves, +seen, +named}:
       House.stored(House.store(games, game,
-        Session{b2, Entry{board, n} <> past, {Nil{} : +List<Entry>}, (moves + n : U32)}), game)
+        Session{b2, Entry{board, n} <> past, {Nil{} : +List<Entry>}, (moves + n : U32), seen, named}), game)
 
 def House.safe_step(ms: +List<F.Move>, b2: F.Board, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   # nothing is safe, or the whole send is one step
@@ -341,12 +387,14 @@ def House.safe_played(pair: F.Board & +List<F.Move>, +games: +Map<Session>, +gam
 def House.safe(+games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   # every safe home move the plays find, as one step
   match s:
-    case Session{+board, _, _, _}:
+    case Session{+board, _, _, _, _, _}:
       House.safe_played(P.Play.safe(board), games, game, s)
 
-def House.deal_afresh(+games: +Map<Session>, +game: U32) -> +Map<Session> & Response:
-  # the same game, from its deal again
-  House.stored(House.store(games, game, House.fresh(game)), game)
+def House.deal_afresh(+games: +Map<Session>, +game: U32, +s: Session) -> +Map<Session> & Response:
+  # the same game, from its deal again — the session's name and
+  # lease carried over
+  House.stored(House.store(games, game,
+    House.fresh(game, House.named_of(s), House.seen_of(s))), game)
 
 def House.run_hauled(got: Maybe<&2, P.Haul>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   # the plays expanded the run, or refused it
@@ -360,7 +408,7 @@ def House.run(+games: +Map<Session>, +game: U32, s: Session, +col: U32, +count: 
   # a column's climbing run, carried by the plays every face
   # shares — one gesture, one step, one undo
   match s:
-    case Session{+board, _, _, _}:
+    case Session{+board, _, _, _, _, _}:
       House.run_hauled(P.Play.supermove(board, col, U32.sub(count, 1), target), games, game, s)
 
 def House.park_hauled(got: Maybe<&2, P.Haul>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
@@ -376,7 +424,7 @@ def House.park(+games: +Map<Session>, +game: U32, s: Session, +col: U32, +count:
   # apiece by the plays every face shares — one gesture, one step,
   # one undo
   match s:
-    case Session{+board, _, _, _}:
+    case Session{+board, _, _, _, _, _}:
       House.park_hauled(P.Play.cellsmove(board, col, U32.sub(count, 1), cell), games, game, s)
 
 def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> +Map<Session> & Response:
@@ -395,7 +443,7 @@ def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> 
     case T.Safe{}:
       House.safe(games, game, s)
     case T.Deal{}:
-      House.deal_afresh(games, game)
+      House.deal_afresh(games, game, s)
     case T.Help{}:
       (games, Response{200, "OK", "{\"help\": " ++ Json.str(T.Game.help()) ++ "}"})
     case T.Oops{+msg}:
@@ -409,24 +457,33 @@ def House.with_session(pair: +Map<Session> & Session, +game: U32, +cmd: T.Cmd) -
   (games2, s) = pair
   House.command(games2, game, s, cmd)
 
-def House.act(games: +Map<Session>, +game: U32, +cmd: T.Cmd) -> +Map<Session> & Response:
+def House.act(games: +Map<Session>, +game: U32, +cmd: T.Cmd, +sid: Maybe<&2, String>, +now: Nat) -> +Map<Session> & Response:
   # find the game, then take its command
-  House.with_session(House.session(games, game), game, cmd)
+  House.with_session(House.session(games, game, sid, now), game, cmd)
 
 def House.shown(pair: +Map<Session> & Session, +game: U32) -> +Map<Session> & Response:
   (games2, s) = pair
   (games2, Response{200, "OK", Json.state(game, s)})
 
-def House.show(games: +Map<Session>, +game: U32) -> +Map<Session> & Response:
+def House.show(games: +Map<Session>, +game: U32, +sid: Maybe<&2, String>, +now: Nat) -> +Map<Session> & Response:
   # the state, dealt on first sight
-  House.shown(House.session(games, game), game)
+  House.shown(House.session(games, game, sid, now), game)
 
-def House.id_seen(got: Maybe<&2, U32>, cont: Unit -> List<&2, U32>) -> List<&2, U32>:
-  # the key as a number, glued to the rest's reading — the keys
-  # are U32.show's work, so they always read
+def House.id_glued(shared: Bool, +n: U32, cont: Unit -> List<&2, U32>) -> List<&2, U32>:
+  # the number glued to the rest's reading, when the key is the
+  # number spelled back — a session's key carries a name, and the
+  # open games are nobody's private business
+  match shared:
+    case True{}:
+      n <> cont(Unit{})
+    case False{}:
+      cont(Unit{})
+
+def House.id_seen(got: Maybe<&2, U32>, +k: String, cont: Unit -> List<&2, U32>) -> List<&2, U32>:
+  # the key read as the number, then spelled back for comparison
   match got:
     case Some{+n}:
-      n <> cont(Unit{})
+      House.id_glued(String.eq(k, U32.show(n)), n, cont)
     case None{}:
       cont(Unit{})
 
@@ -436,20 +493,66 @@ def House.read_ids(keys: List<&2, String>) -> List<&2, U32>:
   match keys:
     case Nil{}:
       {Nil{} : List<&2, U32>}
-    case k <> ks:
-      House.id_seen(U32.read(k), u => House.read_ids(ks))
+    case +k <> ks:
+      House.id_seen(U32.read(k), k, u => House.read_ids(ks))
 
 def House.ids(games: +Map<Session>) -> List<&2, U32>:
   # the open games, least first
   List.sort(~U32, ~U32.is_le, House.read_ids(Map.keys(&2, Session, games)))
 
-def House.index() -> String:
-  # what the root says: the three routes
-  "{\"routes\": [\"GET /games — the open games\", \"GET /<game> — a game's state, dealt on first sight\", \"POST /<game> — a command in the terminal game's words, like '1 a'\"]}"
+# --- The sweep ------------------------------------------------------
 
-def House.ask(+games: +Map<Session>, req: Req) -> +Map<Session> & Response:
-  # one request answered, the games grown: the server's whole
-  # authority, in one pure def — the sockets only carry it
+def House.lease() -> Nat:
+  # how long a session may sit unseen before the sweep wipes it
+  # clean: an hour of the clock's seconds — a number to change
+  # when the house changes its mind
+  3600n
+
+def House.fresh_lease(+seen: Nat, +now: Nat) -> Bool:
+  # seen less than a lease ago — the hour itself is stale
+  Nat.is_lt(Nat.sub(now, seen), House.lease())
+
+def House.pruned(fresh: Bool, +games2: +Map<Session>, +k: String) -> +Map<Session>:
+  # the fresh map kept as it is, the stale one without its key
+  match fresh:
+    case True{}:
+      games2
+    case False{}:
+      Map.del(&2, Session, games2, k)
+
+def House.swept(got: +Map<Session> & Session, +k: String, +now: Nat, more: +Map<Session> -> +Map<Session>) -> +Map<Session>:
+  # one session's lease, judged: fresh it stays, stale its key
+  # goes from the map
+  (games2, s) = got
+  more(House.pruned(House.fresh_lease(House.seen_of(s), now), games2, k))
+
+def House.sweep(keys: List<&2, String>, games: +Map<Session>, +now: Nat) -> +Map<Session>:
+  # the housekeeping: every session past its lease is wiped, key
+  # by key — the shared games too, for an hour unseen is an hour
+  # too long, whatever name a game carries. The recursion is the
+  # closure below, on the shorter tail
+  match keys:
+    case Nil{}:
+      games
+    case +k <> ks:
+      House.swept(Map.get(Session, House.empty(), games, k), k, now,
+        g2 => House.sweep(ks, g2, now))
+
+def House.keep(+games: +Map<Session>, +now: Nat) -> +Map<Session>:
+  # the sweep, from the outside — one call before a connection is
+  # served, and the house stays its own size
+  House.sweep(Map.keys(&2, Session, games), games, now)
+
+def House.index() -> String:
+  # what the root says: the three routes, and the session cookie
+  # that turns the games private
+  "{\"routes\": [\"GET /games — the open games\", \"GET /<game> — a game's state, dealt on first sight\", \"POST /<game> — a command in the terminal game's words, like '1 a'\", \"Cookie: sid=<your name> — play under your own session, wiped after an hour unseen\"]}"
+
+def House.ask(+games: +Map<Session>, +now: Nat, sid: Maybe<&2, String>, req: Req) -> +Map<Session> & Response:
+  # one request answered, the games grown, under the name the
+  # request claims: the server's whole authority, in one pure
+  # def — the sockets only carry it, and the laws can ask it
+  # directly
   match req:
     case Root{}:
       (games, Response{200, "OK", House.index()})
@@ -458,9 +561,9 @@ def House.ask(+games: +Map<Session>, req: Req) -> +Map<Session> & Response:
     case Random{}:
       House.err(games, 500, "Internal Server Error", "the socket should have drawn the game")
     case Show{+game}:
-      House.show(games, game)
+      House.show(games, game, sid, now)
     case Act{+game, +cmd}:
-      House.act(games, game, cmd)
+      House.act(games, game, cmd, sid, now)
     case NoRoute{}:
       House.err(games, 404, "Not Found", "the routes are GET /games, GET /<game> and POST /<game>")
     case NoMethod{+m}:
@@ -498,21 +601,58 @@ def House.move_taken(+took: Bool, a3: +Map<Session> & Response) -> Bool:
   # the same move again: the cell is taken now, so the rules
   # refuse — a refusal never touches the games
   (g3, r3) = a3
-  House.replay_refused(took, House.code_is(r3, 409), House.ask(g3, Act{1, T.Undo{}}))
+  House.replay_refused(took, House.code_is(r3, 409), House.ask(g3, 0n, None{}, Act{1, T.Undo{}}))
 
 def House.after_move(a2: +Map<Session> & Response) -> Bool:
   # a legal move was offered to a fresh game 1: taken?
   (g2, r2) = a2
-  House.move_taken(House.code_is(r2, 200), House.ask(g2, Act{1, T.Play{F.CascadeToCell{0, 0}}}))
+  House.move_taken(House.code_is(r2, 200), House.ask(g2, 0n, None{}, Act{1, T.Play{F.CascadeToCell{0, 0}}}))
+
+def House.session_moves(games: +Map<Session>, sid: Maybe<&2, String>, +game: U32) -> U32:
+  # the moves a named session stands at
+  House.moves_of(House.session_of(games, House.key_of(sid, game)))
+
+def House.alice_map() -> +Map<Session>:
+  # alice's game 1, seen at the hundredth second, one move spent
+  a1 = House.ask(Map.new(&2, Session), 100n, Some{"alice"}, Show{1})
+  House.grown(House.ask(House.grown(a1), 100n, Some{"alice"}, Act{1, T.Play{F.CascadeToCell{0, 0}}}))
+
+def House.there(pair: +Map<Session> & Bool) -> Bool:
+  # the map back, the answer about the key kept
+  (_, there) = pair
+  there
+
+def House.kept_after_sweep(+games: +Map<Session>, +key: String, +now: Nat) -> Bool:
+  # the sweep's verdict on one key, asked after the fact
+  House.there(Map.has(&2, Session, House.sweep(Map.keys(&2, Session, games), games, now), key))
+
+def House.lease_claims(+games: +Map<Session>) -> Bool:
+  # the sweep, judged: an hour less a heartbeat after sight keeps
+  # the session, the hour itself wipes it
+  House.kept_after_sweep(games, "alice/1", (99n + House.lease() : Nat))
+    && Bool.not(House.kept_after_sweep(games, "alice/1", (100n + House.lease() : Nat)))
+
+def House.session_claims() -> Bool:
+  # the named sessions, judged: alice and bob may play the same
+  # deal as two games, and the shared game sees neither
+  +a2 : +Map<Session> = House.alice_map()
+  b1 = House.grown(House.ask(Map.new(&2, Session), 100n, Some{"bob"}, Show{1}))
+  sh = House.grown(House.ask(Map.new(&2, Session), 100n, None{}, Show{1}))
+  U32.is_eq(House.session_moves(a2, Some{"alice"}, 1), 1)
+    && U32.is_eq(House.session_moves(b1, Some{"bob"}, 1), 0)
+    && U32.is_eq(House.session_moves(sh, None{}, 1), 0)
+    && House.lease_claims(a2)
 
 def House.self_check() -> Bool:
   # the server's witness to its own authority, and the laws':
   # asked for game 1 it deals it; asked to move column 1 to cell a
   # it moves it, the cell being empty; asked the same again it
   # refuses, the cell being taken; asked to undo it returns the
-  # very deal. No sockets here — the pure router, alone
-  m1 = House.grown(House.ask(Map.new(&2, Session), Show{1}))
-  House.after_move(House.ask(m1, Act{1, T.Play{F.CascadeToCell{0, 0}}}))
+  # very deal; asked under two names, one deal is two games, the
+  # shared one untouched; asked an hour later, a session is gone.
+  # No sockets here — the pure router, alone
+  m1 = House.grown(House.ask(Map.new(&2, Session), 0n, None{}, Show{1}))
+  House.after_move(House.ask(m1, 0n, None{}, Act{1, T.Play{F.CascadeToCell{0, 0}}})) && House.session_claims()
 
 # --- HTTP: the requests, the replies -------------------------------
 
@@ -551,6 +691,60 @@ def Http.content_len(headers: List<&2, String>) -> U32:
       0
     case +h <> hs:
       Http.header_hits(String.starts_with(String.to_lower(h), "content-length:"), h, u => Http.content_len(hs))
+
+def Http.cookie_named(is_sid: Bool, +val: String, more: Unit -> Maybe<&2, String>) -> Maybe<&2, String>:
+  # the pair judged: the sid's value claimed, or the walk goes on
+  match is_sid:
+    case True{}:
+      Some{String.trim(val)}
+    case False{}:
+      more(Unit{})
+
+def Http.cookie_pair(parts: List<&2, String>, more: Unit -> Maybe<&2, String>) -> Maybe<&2, String>:
+  # one pair: 'sid=alice' names the session, anything else is
+  # the next pair's business
+  match parts:
+    case Con{+name, Con{+val, Nil{}}}:
+      Http.cookie_named(String.eq(String.trim(name), "sid"), val, more)
+    case _:
+      more(Unit{})
+
+def Http.cookie_sid(pairs: List<&2, String>) -> Maybe<&2, String>:
+  # the sid pair among the cookie's pairs: 'a=1; sid=alice'. The
+  # recursion is the closure below, on the shorter tail
+  match pairs:
+    case Nil{}:
+      None{}
+    case +p <> ps:
+      Http.cookie_pair(String.split(String.trim(p), '='), u => Http.cookie_sid(ps))
+
+def Http.cookie_last(got: Maybe<&2, String>) -> Maybe<&2, String>:
+  # the value after the header's colon, walked for its sid pair —
+  # or nothing, when the colon was the last character
+  match got:
+    case Some{+v}:
+      Http.cookie_sid(String.split(String.trim(v), ';'))
+    case None{}:
+      None{}
+
+def Http.cookie_hit(hit: Bool, +h: String, more: Unit -> Maybe<&2, String>) -> Maybe<&2, String>:
+  # one header: the Cookie: header carries the claim
+  match hit:
+    case True{}:
+      Http.cookie_last(List.last(&2, String, String.split(h, ':')))
+    case False{}:
+      more(Unit{})
+
+def Http.cookie_of(headers: List<&2, String>) -> Maybe<&2, String>:
+  # the session a client claims: the sid pair of its Cookie:
+  # header, wherever it sits among the other pairs. No header,
+  # no claim — the shared games are the client's. The recursion
+  # is the closure below, on the shorter tail
+  match headers:
+    case Nil{}:
+      None{}
+    case +h <> hs:
+      Http.cookie_hit(String.starts_with(String.to_lower(h), "cookie:"), h, u => Http.cookie_of(hs))
 
 def Http.token_ok(ok: Bool, tok: String) -> Maybe<&2, String>:
   match ok:
@@ -683,15 +877,17 @@ def Http.route(+reqline: String, +body: String) -> Req:
   # the command
   Http.line_route(String.split(String.trim(reqline), ' '), body)
 
-def Http.request_full(+clen: U32, +reqline: String, +body: List<&2, String>) -> Maybe<&2, Req>:
+def Http.request_full(+clen: U32, +sid: Maybe<&2, String>, +reqline: String, +body: List<&2, String>) -> Maybe<&2, Asked>:
   # the request is whole when the body holds what content-length
-  # promised — ASCII bodies, so characters are bytes
+  # promised — ASCII bodies, so characters are bytes — and beside
+  # it the session the request claims
   complete = {U32.is_le(clen, U32.from_nat(String.length(String.join(body, "\n")))) : Bool}
-  Bool.pick(Maybe<&2, Req>, complete, Some{Http.route(reqline, String.join(body, "\n"))}, None{})
+  Bool.pick(Maybe<&2, Asked>, complete, Some{Asked{Http.route(reqline, String.join(body, "\n")), sid}}, None{})
 
-def Http.request(+reqline: String, +headers: List<&2, String>, +body: List<&2, String>) -> Maybe<&2, Req>:
-  # headers done; the body must now be as long as promised
-  Http.request_full(Http.content_len(headers), reqline, body)
+def Http.request(+reqline: String, +headers: List<&2, String>, +body: List<&2, String>) -> Maybe<&2, Asked>:
+  # headers done; the body must now be as long as promised, and
+  # the session read from among them
+  Http.request_full(Http.content_len(headers), Http.cookie_of(headers), reqline, body)
 
 def Http.blank_line(l: String) -> Bool:
   # the line that ends the headers: empty, or a bare carriage
@@ -705,7 +901,7 @@ def Http.blank_line(l: String) -> Bool:
     case _:
       False{}
 
-def Http.blank(blank: Bool, +reqline: String, hs: List<&2, String>, +headers: List<&2, String>, more: Unit -> Maybe<&2, Req>) -> Maybe<&2, Req>:
+def Http.blank(blank: Bool, +reqline: String, hs: List<&2, String>, +headers: List<&2, String>, more: Unit -> Maybe<&2, Asked>) -> Maybe<&2, Asked>:
   # the blank line ends the headers; the body follows it
   match blank:
     case True{}:
@@ -713,7 +909,7 @@ def Http.blank(blank: Bool, +reqline: String, hs: List<&2, String>, +headers: Li
     case False{}:
       more(Unit{})
 
-def Http.headed(+reqline: String, +rest: List<&2, String>, +headers: List<&2, String>) -> Maybe<&2, Req>:
+def Http.headed(+reqline: String, +rest: List<&2, String>, +headers: List<&2, String>) -> Maybe<&2, Asked>:
   # gather the header lines until the blank line; the body follows,
   # its lines untouched. The recursion is the closure below, on
   # the shorter tail
@@ -723,7 +919,7 @@ def Http.headed(+reqline: String, +rest: List<&2, String>, +headers: List<&2, St
     case +h <> hs:
       Http.blank(Http.blank_line(h), reqline, hs, headers, u => Http.headed(reqline, hs, h <> headers))
 
-def Http.lines(lines: List<&2, String>) -> Maybe<&2, Req>:
+def Http.lines(lines: List<&2, String>) -> Maybe<&2, Asked>:
   # the request line first, the headers after, the body last —
   # all exactly as they arrived
   match lines:
@@ -732,8 +928,9 @@ def Http.lines(lines: List<&2, String>) -> Maybe<&2, Req>:
     case reqline <> rest:
       Http.headed(reqline, rest, {Nil{} : List<&2, String>})
 
-def Http.parse(+acc: String) -> Maybe<&2, Req>:
-  # nothing until the whole request has arrived, then the Req
+def Http.parse(+acc: String) -> Maybe<&2, Asked>:
+  # nothing until the whole request has arrived, then the request
+  # and the session it claims
   Http.lines(String.split(acc, '\n'))
 
 def Http.reply(resp: Response) -> String:
@@ -769,85 +966,90 @@ def Talk.answer(pair: +Map<Session> & Response, sock: Socket) -> IO(+Map<Session
     fr2 : Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit> <- TCP.send(sock, Http.reply(resp))
     Talk.sent(fr2, g2)
 
-def Talk.routed(req: Req, sock: Socket, +games: +Map<Session>) -> IO(+Map<Session>):
+def Talk.routed(req: Req, sid: Maybe<&2, String>, sock: Socket, +games: +Map<Session>, +now: Nat) -> IO(+Map<Session>):
   # /random draws its game here, where the IO lives; the router
-  # stays pure, and the dice roll in the socket's world
+  # stays pure, the dice roll in the socket's world, and whatever
+  # session the request claimed goes with the question
   match req:
     case Random{}:
       do IO<+Map<Session>>:
         n : U32 <- T.Game.draw_seed(16n)
-        Talk.answer(House.ask(games, Show{n}), sock)
+        Talk.answer(House.ask(games, now, sid, Show{n}), sock)
     case _:
-      Talk.answer(House.ask(games, req), sock)
+      Talk.answer(House.ask(games, now, sid, req), sock)
 
-def Talk.ended(got: Maybe<&2, Req>, sock: Socket, +games: +Map<Session>) -> IO(+Map<Session>):
+def Talk.ended(got: Maybe<&2, Asked>, sock: Socket, +games: +Map<Session>, +now: Nat) -> IO(+Map<Session>):
   # the client said all it would say: answer it if it said a whole
   # request, and keep what the answer grew
   match got:
-    case Some{+req}:
-      Talk.routed(req, sock, games)
+    case Some{Asked{+req, +sid}}:
+      Talk.routed(req, sid, sock, games, now)
     case None{}:
       do IO<+Map<Session>>:
         Socket.close(sock)
         return games
 
-def Talk.grown(got: Maybe<&2, Req>, sock: Socket, +acc2: String, +games: +Map<Session>, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
+def Talk.grown(got: Maybe<&2, Asked>, sock: Socket, +acc2: String, +games: +Map<Session>, +now: Nat, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
   # after a read: a whole request is answered at once, a part
   # awaits the rest
   match got:
-    case Some{+req}:
-      Talk.routed(req, sock, games)
+    case Some{Asked{+req, +sid}}:
+      Talk.routed(req, sid, sock, games, now)
     case None{}:
       more((sock, acc2))
 
-def Talk.data(data: Maybe<&1, String>, sock: Socket, +acc: String, +games: +Map<Session>, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
+def Talk.data(data: Maybe<&1, String>, sock: Socket, +acc: String, +games: +Map<Session>, +now: Nat, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
   # a chunk, or the end of the client's side
   match data:
     case Some{+chunk}:
-      Talk.grown(Http.parse(acc ++ chunk), sock, acc ++ chunk, games, more)
+      Talk.grown(Http.parse(acc ++ chunk), sock, acc ++ chunk, games, now, more)
     case None{}:
-      Talk.ended(Http.parse(acc), sock, games)
+      Talk.ended(Http.parse(acc), sock, games, now)
 
-def Talk.got(fr: Socket & Result<&1, &1, U32 & String, Maybe<&1, String>>, +acc: String, +games: +Map<Session>, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
+def Talk.got(fr: Socket & Result<&1, &1, U32 & String, Maybe<&1, String>>, +acc: String, +games: +Map<Session>, +now: Nat, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
   # the socket back beside what arrived
   (sock2, r) = fr
   match r:
     case Done{data}:
-      Talk.data(data, sock2, acc, games, more)
+      Talk.data(data, sock2, acc, games, now, more)
     case Fail{(code, msg)}:
       do IO<+Map<Session>>:
         IO.print_err("recv: " ++ msg ++ "\n")
         Socket.close(sock2)
         return games
 
-def Talk.reading(w: Socket & String, +games: +Map<Session>, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
+def Talk.reading(w: Socket & String, +games: +Map<Session>, +now: Nat, more: (Socket & String) -> IO(+Map<Session>)) -> IO(+Map<Session>):
   # one read, and everything the socket has said so far
   (sock, acc) = w
   do IO<+Map<Session>>:
     fr : Socket & Result<&1, &1, U32 & String, Maybe<&1, String>> <- TCP.recv(sock, 4096)
-    Talk.got(fr, acc, games, more)
+    Talk.got(fr, acc, games, now, more)
 
-def Talk.round(fuel: Nat, w: Socket & String, +games: +Map<Session>) -> IO(+Map<Session>):
+def Talk.round(fuel: Nat, w: Socket & String, +games: +Map<Session>, +now: Nat) -> IO(+Map<Session>):
   # one connection's reads, a unit of fuel each: the socket and
-  # everything it has said so far travel together, and the games
-  # the connection leaves come back out. The recursion is the
-  # closure below — every call to it has less fuel
+  # everything it has said so far travel together, the games the
+  # connection leaves come back out, and the clock the connection
+  # was greeted by goes with them. The recursion is the closure
+  # below — every call to it has less fuel
   match fuel:
     case 0n:
       Talk.spent(w, games)
     case 1n+p:
-      Talk.reading(w, games, w2 => Talk.round(p, w2, games))
+      Talk.reading(w, games, now, w2 => Talk.round(p, w2, games, now))
 
 # --- The accept loop -----------------------------------------------
 
 def Serve.opened(fr: Listener & Result<&1, &1, U32 & String, Socket>, +games: +Map<Session>, next: (Listener & +Map<Session>) -> IO(Unit)) -> IO(Unit):
-  # a client at the door, or a failure to see one. The connection
-  # is served to its end, and the games it leaves come back
+  # a client at the door, or a failure to see one. The house is
+  # swept first — no session sits unseen past its lease — then the
+  # connection is served to its end, and the games it leaves come
+  # back
   (l2, r) = fr
   match r:
     case Done{sock}:
       do IO<Unit>:
-        g2 : +Map<Session> <- Talk.round(64n, (sock, ""), games)
+        +now : Nat <- IO.now()
+        g2 : +Map<Session> <- Talk.round(64n, (sock, ""), House.keep(games, now), now)
         next((l2, g2))
     case Fail{(code, msg)}:
       do IO<Unit>:
