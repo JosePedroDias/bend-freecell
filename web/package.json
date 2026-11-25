@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "test": "node web-test.mjs",
-    "test:solver": "node solver-test.mjs"
+    "test:solver": "node solver-test.mjs",
+    "test:browser": "node browser-test.mjs"
   },
   "devDependencies": {
-    "jsdom": "^24.1.0"
+    "jsdom": "^24.1.0",
+    "puppeteer-core": "^22.15.0"
   }
 }

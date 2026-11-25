@@ -98,8 +98,7 @@
   }
 
   /* cards */
-  .card { transition: transform 0.16s ease-out; cursor: pointer; }
-  .card.drag { transition: none; }
+  .card { cursor: pointer; }
   .card.drag .face { stroke: var(--accent); stroke-width: 2; }
   .card.selected .face { stroke: var(--accent); stroke-width: 3.5; }
   .card.refused { animation: refused 0.3s; }
@@ -445,20 +444,17 @@ function movableOf(b, key) {
 }
 
 // The paint order at rest is placements(): deepest first, top card
-// last. Two rules keep the glides alive:
-//   1. re-appending a node is a remove-and-insert, and removing an
-//      element from the document cancels its running transitions —
-//      so a card is never re-appended in the same frame as its
-//      transform changes. Cards changing position ride #flights, a
-//      layer above the resting one, and are moved there *before*
-//      their transform is set.
-//   2. once the flights land (the glide is 160ms; settle waits 220),
-//      settle() re-appends every card into #cards in placement
-//      order — which also keeps the resting order right when a
-//      redeal lands a card exactly where it already was.
-// A mid-flight card is always in #flights, so no re-append ever
-// touches it; a second move in the same breath simply retargets its
-// transition from where it is on screen.
+// last. The glide from one slot to another is a Web Animations
+// keyframe run, not a CSS transition: a transition never starts when
+// its element is re-appended in the same tick (the paint order's
+// lifts do exactly that, and the change snaps instead of gliding),
+// while a keyframe animation runs on the element wherever it sits.
+// Each glide starts from the card's computed transform — where it
+// is on screen, mid-flight included — so a chain of moves retargets
+// smoothly; and once the flights land (the glide is 160ms, settle
+// waits 220), settle() re-appends every card into #cards in
+// placement order, which also keeps the resting order right when a
+// redeal lands a card exactly where it already was.
 let paintGen = 0;
 let lastPl = [];
 
@@ -468,6 +464,15 @@ function settle() {
     const el = cardEls.get(keyOf(p.card));
     if (el) cardsG.appendChild(el);
   }
+}
+
+function glide(el, x, y) {
+  const target = "translate(" + x + "px," + y + "px)";
+  const from = getComputedStyle(el).transform; // where the card is now
+  el.style.transform = target;
+  if (!el.animate || !from || from === "none" || from === target) return;
+  if (el.getAnimations) for (const a of el.getAnimations()) a.cancel();
+  el.animate([{transform: from}, {transform: target}], {duration: 160, easing: "ease-out"});
 }
 
 function render() {
@@ -480,8 +485,9 @@ function render() {
     const was = prevPos.get(key);
     const moved = !was || was.x !== p.x || was.y !== p.y;
     if (moved && el.parentNode !== flightsG) flightsG.appendChild(el);
-    el.classList.remove("drag"); // a drop ends the no-transition ride
-    el.style.transform = "translate(" + p.x + "px," + p.y + "px)";
+    el.classList.remove("drag");
+    if (moved) glide(el, p.x, p.y);
+    else el.style.transform = "translate(" + p.x + "px," + p.y + "px)";
     el.dataset.x = p.x; el.dataset.y = p.y;
     prevPos.set(key, {x: p.x, y: p.y});
   }

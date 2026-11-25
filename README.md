@@ -76,6 +76,19 @@ column's paint order (including a card that lands exactly where it
 already was), and checks the deal box and the address name the
 game. It is the cheap gate for `web/web.html`.
 
+jsdom renders no pixels, so it cannot see whether a card glides to
+its slot or teleports. The glides are watched in a real browser:
+
+```bash
+node web/browser-test.mjs   # needs a Chrome, Chromium or Edge
+```
+
+It drives the built page through the three ways a card moves —
+click-then-click, undo, drag-and-drop — and samples the moving
+card's computed transform frame by frame; a check passes only when
+the card took intermediate positions between its slots. It skips,
+with exit 0, on a machine with no browser to drive.
+
 The search the page drives — `Solver.first` stepped by `Beam.step`
 — is a port of the checked search in
 [HOW-TO-USE-BEND.md](HOW-TO-USE-BEND.md)'s sense, so it carries the
