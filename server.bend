@@ -1,6 +1,7 @@
 import Base
 import ./freecell.bend as F
 import ./terminal-game.bend as T
+import ./plays.bend as P
 
 # ===================================================================
 # The freecell server: an HTTP/1.0 authority over one or many abstract
@@ -16,19 +17,30 @@ import ./terminal-game.bend as T
 #   curl localhost:8080/1              # deal game 1, see it as JSON
 #   curl localhost:8080/1 -d "1 a"     # a move, the terminal game's words
 #   curl localhost:8080/1 -d "u"       # take it back
+#   curl localhost:8080/1 -d "r"       # take it forward again
+#   curl localhost:8080/1 -d "s"       # every safe home move
+#   curl localhost:8080/1 -d "d"       # the same game, dealt afresh
+#   curl localhost:8080/1 -d "1:2 3"   # a run, in single moves
+#   curl localhost:8080/random         # a random solvable game
 #   curl localhost:8080/games          # the open games
 #
 # Answers are JSON — the whole board, or {"error": ...} with a 4xx.
-# Commands are the terminal game's own two-word moves, so a whole
-# winning line can be piped in move by move. The router below is
-# pure: the sockets only carry it, and the laws can ask it directly.
+# Commands are the terminal game's own words, so a whole winning
+# line can be piped in move by move. The router below is pure: the
+# sockets only carry it, and the laws can ask it directly.
 
 # --- A session ----------------------------------------------------
 
-# one game's whole truth: where it stands, and every board it has
-# stood at
+# one taken step: the board before it, and how many single moves it
+# cost — a supermove or a safe send counts its own
+type Entry is Data:
+  Entry{board: F.Board, n: U32}
+
+# one game's whole truth: where it stands, every board it has stood
+# at, every board it can stand at again, and how many single moves
+# brought it here
 type Session is Data:
-  Session{board: F.Board, past: +List<F.Board>}
+  Session{board: F.Board, past: +List<Entry>, future: +List<Entry>, moves: U32}
 
 # the server's answer: an HTTP status and a JSON body
 type Response is Data:
@@ -38,6 +50,7 @@ type Response is Data:
 type Req is Data:
   Root{}
   Games{}
+  Random{}
   Show{game: U32}
   Act{game: U32, cmd: T.Cmd}
   NoRoute{}
@@ -171,12 +184,12 @@ def Json.founds(founds: +List<U32>, +letters: +List<&2, String>, +acc: String) -
         Json.founds(ns, ss, Json.found(s, n)),
         Json.founds(ns, ss, acc ++ "," ++ Json.found(s, n)))
 
-def Json.board_state(+game: U32, board: F.Board) -> String:
-  # a board as JSON: the game, the win, the cells, the foundations,
-  # the columns
+def Json.board_state(+game: U32, +moves: U32, board: F.Board) -> String:
+  # a board as JSON: the game, the moves, the win, the cells, the
+  # foundations, the columns
   match board:
     case F.Board{+cascades, +cells, +founds}:
-      head = {"{\"game\": " ++ Json.num(game) ++ ", \"won\": " ++ Json.bool(F.Board.is_won(board)) : String}
+      head = {"{\"game\": " ++ Json.num(game) ++ ", \"moves\": " ++ Json.num(moves) ++ ", \"won\": " ++ Json.bool(F.Board.is_won(board)) : String}
       cells_json = {", \"cells\": " ++ Json.cells_list(cells) : String}
       founds_json = {", \"foundations\": {" ++ Json.founds(founds, T.View.suit_letters(), "") ++ "}" : String}
       piles_json = {", \"cascades\": " ++ Json.pile_list(cascades) ++ "}" : String}
@@ -185,14 +198,19 @@ def Json.board_state(+game: U32, board: F.Board) -> String:
 def Json.state(+game: U32, s: Session) -> String:
   # a session as one JSON object
   match s:
-    case Session{+board, _}:
-      Json.board_state(game, board)
+    case Session{+board, _, _, +moves}:
+      Json.board_state(game, moves, board)
 
 # --- The router: the house's whole authority ---------------------
 
 def House.fresh(+game: U32) -> Session:
   # a game's opening session: its deal, and no history yet
-  Session{F.Board.deal_ms(game), {Nil{} : List<&2, F.Board>}}
+  Session{F.Board.deal_ms(game), {Nil{} : +List<Entry>}, {Nil{} : +List<Entry>}, 0}
+
+def House.empty() -> Session:
+  # the never-read default: the empty board can never be a live
+  # session — the deck is somewhere, a law
+  Session{F.Board.empty(), {Nil{} : +List<Entry>}, {Nil{} : +List<Entry>}, 0}
 
 def House.session_get(pair: +Map<Session> & Session) -> Session:
   # the map back, the session kept
@@ -200,10 +218,8 @@ def House.session_get(pair: +Map<Session> & Session) -> Session:
   s
 
 def House.session_of(games: +Map<Session>, +key: String) -> Session:
-  # the session behind a key, once has said it is there. The empty
-  # board below can never be a live session — the deck is somewhere,
-  # a law — so it is the never-read default
-  House.session_get(Map.get(Session, Session{F.Board.empty(), {Nil{} : List<&2, F.Board>}}, games, key))
+  # the session behind a key, once has said it is there
+  House.session_get(Map.get(Session, House.empty(), games, key))
 
 def House.pick_session(present: Bool, +games: +Map<Session>, +game: U32) -> +Map<Session> & Session:
   # the session found, or the deal a first reference deserves
@@ -224,8 +240,13 @@ def House.session(games: +Map<Session>, +game: U32) -> +Map<Session> & Session:
 
 def House.board_of(s: Session) -> F.Board:
   match s:
-    case Session{+board, _}:
+    case Session{+board, _, _, _}:
       board
+
+def House.moves_of(s: Session) -> U32:
+  match s:
+    case Session{_, _, _, +n}:
+      n
 
 def House.store(+games: +Map<Session>, +game: U32, +s2: Session) -> +Map<Session> & Session:
   # a session put back
@@ -235,50 +256,126 @@ def House.err(+games: +Map<Session>, +code: U32, +why: String, +msg: String) -> 
   # games unchanged, the refusal said as JSON
   (games, Response{code, why, "{\"error\": " ++ Json.str(msg) ++ "}"})
 
-def House.stepped(s: Session, +b2: F.Board) -> Session:
-  # a legal move: the new board, the old one remembered
-  match s:
-    case Session{+board, +past}:
-      Session{b2, board <> past}
-
 def House.stored(pair: +Map<Session> & Session, +game: U32) -> +Map<Session> & Response:
   # the stored session, shown
   (games2, s2) = pair
   (games2, Response{200, "OK", Json.state(game, s2)})
 
-def House.applied(got: Maybe<&2, F.Board>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
-  # the rules' verdict on a move: taken into the session, or
-  # refused with the games untouched
+def House.stepped(s: Session, +b2: F.Board, +n: U32) -> Session:
+  # a legal move: the new board, the old one remembered with its
+  # cost, the future dead
+  match s:
+    case Session{+board, +past, _, +moves}:
+      Session{b2, Entry{board, n} <> past, {Nil{} : +List<Entry>}, (moves + n : U32)}
+
+def House.applied_n(got: Maybe<&2, F.Board>, +n: U32, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # the rules' verdict on a move, with its cost
   match got:
     case Some{+b2}:
-      House.stored(House.store(games, game, House.stepped(s, b2)), game)
+      House.stored(House.store(games, game, House.stepped(s, b2, n)), game)
     case None{}:
       House.err(games, 409, "Conflict", "the rules refuse this move")
+
+def House.applied(got: Maybe<&2, F.Board>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # a single move: cost one
+  House.applied_n(got, 1, games, game, s)
 
 def House.play(+games: +Map<Session>, +game: U32, +s: Session, +move: F.Move) -> +Map<Session> & Response:
   # the rules are the only judge
   House.applied(F.Board.apply(House.board_of(s), move), games, game, s)
 
-def House.went_back(past: List<&2, F.Board>, +games: +Map<Session>, +game: U32) -> +Map<Session> & Response:
+def House.went_back(past: +List<Entry>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   # one board back, or the refusal to invent one
   match past:
     case Nil{}:
       House.err(games, 409, "Conflict", "nothing to undo")
-    case old <> rest:
-      House.stored(House.store(games, game, Session{old, rest}), game)
+    case Entry{+old, +n} <> rest:
+      match s:
+        case Session{+board, _, +future, +moves}:
+          House.stored(House.store(games, game,
+            Session{old, rest, Entry{board, n} <> future, U32.sub(moves, n)}), game)
 
 def House.undo(+games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
   match s:
-    case Session{+board, +past}:
-      House.went_back(past, games, game)
+    case Session{_, +past, _, _}:
+      House.went_back(past, games, game, s)
+
+def House.went_forward(future: +List<Entry>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # one board forward again, or the refusal to invent one
+  match future:
+    case Nil{}:
+      House.err(games, 409, "Conflict", "nothing to redo")
+    case Entry{+next, +n} <> rest:
+      match s:
+        case Session{+board, +past, _, +moves}:
+          House.stored(House.store(games, game,
+            Session{next, Entry{board, n} <> past, rest, (moves + n : U32)}), game)
+
+def House.redo(+games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  match s:
+    case Session{_, _, +future, _}:
+      House.went_forward(future, games, game, s)
+
+def House.applied_board(b2: F.Board, +n: U32, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # a board already reached, remembered as one step of n moves
+  match s:
+    case Session{+board, +past, _, +moves}:
+      House.stored(House.store(games, game,
+        Session{b2, Entry{board, n} <> past, {Nil{} : +List<Entry>}, (moves + n : U32)}), game)
+
+def House.safe_step(ms: +List<F.Move>, b2: F.Board, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # nothing is safe, or the whole send is one step
+  match ms:
+    case Nil{}:
+      House.err(games, 409, "Conflict", "no card is safe to send home")
+    case _ <> _:
+      House.applied_board(b2, P.Play.counted(ms), games, game, s)
+
+def House.safe_played(pair: F.Board & +List<F.Move>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # the plays' safe answer: the board after them, and the moves
+  (b2, ms) = pair
+  House.safe_step(ms, b2, games, game, s)
+
+def House.safe(+games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # every safe home move the plays find, as one step
+  match s:
+    case Session{+board, _, _, _}:
+      House.safe_played(P.Play.safe(board), games, game, s)
+
+def House.deal_afresh(+games: +Map<Session>, +game: U32) -> +Map<Session> & Response:
+  # the same game, from its deal again
+  House.stored(House.store(games, game, House.fresh(game)), game)
+
+def House.run_hauled(got: Maybe<&2, P.Haul>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # the plays expanded the run, or refused it
+  match got:
+    case None{}:
+      House.err(games, 409, "Conflict", "the rules refuse this run")
+    case Some{P.Haul{+b2, ms}}:
+      House.applied_board(b2, P.Play.counted(ms), games, game, s)
+
+def House.run(+games: +Map<Session>, +game: U32, s: Session, +col: U32, +count: U32, +target: U32) -> +Map<Session> & Response:
+  # a column's climbing run, carried by the plays every face
+  # shares — one gesture, one step, one undo
+  match s:
+    case Session{+board, _, _, _}:
+      House.run_hauled(P.Play.supermove(board, col, U32.sub(count, 1), target), games, game, s)
 
 def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> +Map<Session> & Response:
   # a command in the terminal game's words, judged by the same rules
   match cmd:
     case T.Play{+move}:
       House.play(games, game, s, move)
+    case T.Run{+col, +count, +target}:
+      House.run(games, game, s, col, count, target)
     case T.Undo{}:
       House.undo(games, game, s)
+    case T.Redo{}:
+      House.redo(games, game, s)
+    case T.Safe{}:
+      House.safe(games, game, s)
+    case T.Deal{}:
+      House.deal_afresh(games, game)
     case T.Help{}:
       (games, Response{200, "OK", "{\"help\": " ++ Json.str(T.Game.help()) ++ "}"})
     case T.Oops{+msg}:
@@ -286,7 +383,7 @@ def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> 
     case T.Quit{}:
       House.err(games, 400, "Bad Request", "q is for the terminal; here, closing the connection is quitting")
     case T.Skip{}:
-      House.err(games, 400, "Bad Request", "post a command: '1 2' moves a card, 'u' undoes, 'h' helps")
+      House.err(games, 400, "Bad Request", "post a command: '1 2' moves a card, '1:2 3' carries a run, 's' sends safely, 'u' undoes, 'r' redoes, 'd' deals afresh, 'h' helps")
 
 def House.with_session(pair: +Map<Session> & Session, +game: U32, +cmd: T.Cmd) -> +Map<Session> & Response:
   (games2, s) = pair
@@ -338,6 +435,8 @@ def House.ask(+games: +Map<Session>, req: Req) -> +Map<Session> & Response:
       (games, Response{200, "OK", House.index()})
     case Games{}:
       (games, Response{200, "OK", "{\"games\": " ++ Json.num_list(House.ids(games)) ++ "}"})
+    case Random{}:
+      House.err(games, 500, "Internal Server Error", "the socket should have drawn the game")
     case Show{+game}:
       House.show(games, game)
     case Act{+game, +cmd}:
@@ -490,12 +589,28 @@ def Http.get_root(is_root: Bool, +path: String) -> Req:
     case False{}:
       Http.get_game(Http.game_of(path))
 
+def Http.get_root_or_random(is_root: Bool, +path: String) -> Req:
+  # "/" names the routes; "/random" rolls the dice; anything else
+  # names a game
+  match is_root:
+    case True{}:
+      Root{}
+    case False{}:
+      Http.get_game(Http.game_of(path))
+
+def Http.get_random(is_random: Bool, +path: String) -> Req:
+  match is_random:
+    case True{}:
+      Random{}
+    case False{}:
+      Http.get_root_or_random(String.eq(path, "/"), path)
+
 def Http.get_games(is_games: Bool, +path: String) -> Req:
   match is_games:
     case True{}:
       Games{}
     case False{}:
-      Http.get_root(String.eq(path, "/"), path)
+      Http.get_random(String.eq(path, "/random"), path)
 
 def Http.get(+path: String) -> Req:
   Http.get_games(String.eq(path, "/games"), path)
@@ -634,12 +749,23 @@ def Talk.answer(pair: +Map<Session> & Response, sock: Socket) -> IO(+Map<Session
     fr2 : Socket & Result<&1, &1, (U32 & String) & List<&2, U32>, Unit> <- TCP.send(sock, Http.reply(resp))
     Talk.sent(fr2, g2)
 
+def Talk.routed(req: Req, sock: Socket, +games: +Map<Session>) -> IO(+Map<Session>):
+  # /random draws its game here, where the IO lives; the router
+  # stays pure, and the dice roll in the socket's world
+  match req:
+    case Random{}:
+      do IO<+Map<Session>>:
+        n : U32 <- T.Game.draw_seed(16n)
+        Talk.answer(House.ask(games, Show{n}), sock)
+    case _:
+      Talk.answer(House.ask(games, req), sock)
+
 def Talk.ended(got: Maybe<&2, Req>, sock: Socket, +games: +Map<Session>) -> IO(+Map<Session>):
   # the client said all it would say: answer it if it said a whole
   # request, and keep what the answer grew
   match got:
     case Some{+req}:
-      Talk.answer(House.ask(games, req), sock)
+      Talk.routed(req, sock, games)
     case None{}:
       do IO<+Map<Session>>:
         Socket.close(sock)
@@ -650,7 +776,7 @@ def Talk.grown(got: Maybe<&2, Req>, sock: Socket, +acc2: String, +games: +Map<Se
   # awaits the rest
   match got:
     case Some{+req}:
-      Talk.answer(House.ask(games, req), sock)
+      Talk.routed(req, sock, games)
     case None{}:
       more((sock, acc2))
 

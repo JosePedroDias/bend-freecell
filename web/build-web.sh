@@ -3,7 +3,7 @@
 # Build the browser game: one self-contained freecell.html.
 # ===================================================================
 # bend bundles the page — web.html, its inline UI and the bend code
-# it imports (web.bend, freecell.bend, solver.bend) — into
+# it imports (web.bend, freecell.bend, solver.bend, plays.bend) — into
 # web-dist/ as one JavaScript chunk. This script then splices that
 # chunk back into the page, in place of the inline module, so the
 # result is a single file that opens with a double-click: no

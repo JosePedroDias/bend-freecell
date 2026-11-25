@@ -1,5 +1,6 @@
 import Base
 import ./freecell.bend as F
+import ./plays.bend as P
 
 # ===================================================================
 # Terminal freecell: deal a Microsoft game, render it as text, read
@@ -9,7 +10,11 @@ import ./freecell.bend as F
 #   bend terminal-game.bend 11982      # the famously hard deal
 #
 # Moves are two words, <from> <to>: 1-8 a cascade, a-d a cell, h the
-# foundations; plus u (undo), h (help) and q (quit).
+# foundations. A run is a count on the source: '1:2 3' carries two
+# cards of column 1 onto column 3, expanded by the shared plays
+# module into single moves the rules check. Plus u (undo), r
+# (redo), s (safe home moves), d (deal afresh), h (help) and q
+# (quit).
 #
 # Bend has no read_line effect: the input is a File on /dev/stdin.
 # That handle is linear, so it travels inside the State below, and
@@ -40,10 +45,18 @@ type Place is Data:
   Home{}
   BadP{}
 
+# a run grab, as typed: "1:2" — column 1, two cards
+type Grab is Data:
+  Grab{col: U32, count: U32}
+
 # a whole command line, parsed
 type Cmd is Data:
   Play{move: F.Move}
+  Run{col: U32, count: U32, target: U32}
   Undo{}
+  Redo{}
+  Safe{}
+  Deal{}
   Help{}
   Quit{}
   Skip{}
@@ -52,7 +65,7 @@ type Cmd is Data:
 # one round's whole world: the input handle is linear, so it
 # travels with the game instead of being copied
 type State is Type:
-  State{board: F.Board, past: List<F.Board>, input: File}
+  State{board: F.Board, past: List<F.Board>, future: List<F.Board>, input: File}
 
 def Parse.char_place(c: Char) -> Place:
   # a column 1-8, a cell a-d, or the foundations h or f
@@ -111,7 +124,8 @@ def Parse.place(tok: String) -> Place:
       BadP{}
 
 def Parse.one_cmd(t1: String) -> Cmd:
-  # a single word: q quits, u undoes, h or ? helps
+  # a single word: q quits, u undoes, r redoes, s sends safely, d
+  # deals afresh, h or ? helps
   match t1:
     case SNil{}:
       Skip{}
@@ -119,12 +133,61 @@ def Parse.one_cmd(t1: String) -> Cmd:
       Quit{}
     case SCon{'u', SNil{}}:
       Undo{}
+    case SCon{'r', SNil{}}:
+      Redo{}
+    case SCon{'s', SNil{}}:
+      Safe{}
+    case SCon{'d', SNil{}}:
+      Deal{}
     case SCon{'h', SNil{}}:
       Help{}
     case SCon{'?', SNil{}}:
       Help{}
     case _:
       Oops{"unknown command: two words make a move, 'h' for help"}
+
+def Parse.grab_ok(col: Maybe<&2, U32>, count: Maybe<&2, U32>) -> Maybe<&2, Grab>:
+  # a column and a count, both as typed: "1:2" is column 1, two cards
+  match col count:
+    case Some{+c} Some{+k}:
+      Bool.pick(Maybe<&2, Grab>, U32.is_le(1, c) && U32.is_le(c, 8) && U32.is_le(1, k) && U32.is_le(k, 13),
+        Some{Grab{U32.sub(c, 1), k}}, None{})
+    case _ _:
+      None{}
+
+def Parse.grab_parts(parts: List<&2, String>) -> Maybe<&2, Grab>:
+  # the two numbers of a grab, if they are there
+  match parts:
+    case Con{a, Con{b, Nil{}}}:
+      Parse.grab_ok(U32.read(a), U32.read(b))
+    case _:
+      None{}
+
+def Parse.grab(tok: String) -> Maybe<&2, Grab>:
+  # "col:count" — a column, and how many of its cards to carry
+  Parse.grab_parts(String.split(tok, ':'))
+
+def Parse.run_target(target: Place) -> Maybe<&2, U32>:
+  # a run lands on a column
+  match target:
+    case Col{idx}:
+      Some{idx}
+    case _:
+      None{}
+
+def Parse.run_of(got: Maybe<&2, U32>, +col: U32, +count: U32) -> Cmd:
+  # the target column, if the run has one
+  match got:
+    case Some{t}:
+      Run{col, count, t}
+    case None{}:
+      Oops{"a run lands only on a column: 1-8"}
+
+def Parse.run_cmd(g: Grab, target: Place) -> Cmd:
+  # "1:2 3" — carry two cards of column 1 onto column 3
+  match g:
+    case Grab{+col, +count}:
+      Parse.run_of(Parse.run_target(target), col, count)
 
 def Parse.move_cmd(src: Place, dst: Place) -> Cmd:
   # the five moves, and why any other pair makes no sense
@@ -148,11 +211,19 @@ def Parse.move_cmd(src: Place, dst: Place) -> Cmd:
     case BadP{} _:
       Oops{"unknown source: 1-8, a-d or h"}
 
+def Parse.pair_cmd(got: Maybe<&2, Grab>, t1: String, t2: String) -> Cmd:
+  # two words: a run grab, or the two places of a single move
+  match got:
+    case Some{g}:
+      Parse.run_cmd(g, Parse.place(t2))
+    case None{}:
+      Parse.move_cmd(Parse.place(t1), Parse.place(t2))
+
 def Parse.tokens(toks: List<&2, String>) -> Cmd:
   # the words of a line
   match toks:
-    case Con{t1, Con{t2, Nil{}}}:
-      Parse.move_cmd(Parse.place(t1), Parse.place(t2))
+    case Con{+t1, Con{+t2, Nil{}}}:
+      Parse.pair_cmd(Parse.grab(t1), t1, t2)
     case Con{t1, Nil{}}:
       Parse.one_cmd(t1)
     case Nil{}:
@@ -250,60 +321,123 @@ def Game.help() -> String:
   l4 = {"       '3 a'  park the top of column 3 in cell a\n" : String}
   l5 = {"       'b 4'  the card in cell b onto column 4\n" : String}
   l6 = {"       '2 h'  the top of column 2 to its foundation\n" : String}
-  l7 = {"u: undo    q: quit    h: help\n" : String}
-  l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7
+  l7 = {"  a run carries a column's climbing cards together:\n" : String}
+  l8 = {"       '1:2 3'  two cards of column 1 onto column 3\n" : String}
+  l9 = {"s: safe home moves    d: deal afresh\n" : String}
+  l10 = {"u: undo    r: redo    q: quit    h: help\n" : String}
+  l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7 ++ l8 ++ l9 ++ l10
 
 def Game.play(got: Maybe<&2, F.Board>, board: F.Board, past: List<F.Board>, input: File, k: State -> IO(Unit)) -> IO(Unit):
-  # a legal move goes onto the history; an illegal one changes nothing
+  # a legal move goes onto the history, and the redo history dies;
+  # an illegal one changes nothing
   match got:
     case Some{b2}:
-      k(State{b2, board <> past, input})
+      k(State{b2, board <> past, {Nil{} : List<F.Board>}, input})
     case None{}:
       do IO<Unit>:
         IO.print("illegal move\n")
-        k(State{board, past, input})
+        k(State{board, past, {Nil{} : List<F.Board>}, input})
 
-def Game.undo(past: List<F.Board>, board: F.Board, input: File, k: State -> IO(Unit)) -> IO(Unit):
-  # go back one board
+def Game.undo(past: List<F.Board>, future: List<F.Board>, board: F.Board, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # go back one board, keeping it for the redo
   match past:
     case Nil{}:
       do IO<Unit>:
         IO.print("nothing to undo\n")
-        k(State{board, past, input})
+        k(State{board, past, future, input})
     case old <> rest:
-      k(State{old, rest, input})
+      k(State{old, rest, board <> future, input})
 
-def Game.handle(cmd: Cmd, input: File, +board: F.Board, past: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
+def Game.redo(future: List<F.Board>, past: List<F.Board>, board: F.Board, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # go forward one board
+  match future:
+    case Nil{}:
+      do IO<Unit>:
+        IO.print("nothing to redo\n")
+        k(State{board, past, future, input})
+    case next <> rest:
+      k(State{next, board <> past, rest, input})
+
+def Game.safe_played(pair: F.Board & +List<F.Move>, past: List<F.Board>, future: List<F.Board>, board: F.Board, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # the plays' own answer: every safe home move and the board
+  # after them
+  (b2, ms) = pair
+  match ms:
+    case Nil{}:
+      do IO<Unit>:
+        IO.print("nothing is safe to send home\n")
+        k(State{board, past, future, input})
+    case _ <> _:
+      do IO<Unit>:
+        IO.print("sent " ++ U32.show(P.Play.counted(ms)) ++ " card(s) home\n")
+        k(State{b2, board <> past, {Nil{} : List<F.Board>}, input})
+
+def Game.safe(past: List<F.Board>, future: List<F.Board>, +board: F.Board, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # every card the foundations would take safely, in one word
+  Game.safe_played(P.Play.safe(board), past, future, board, input, k)
+
+def Game.deal(+game: U32, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # the same game, from its deal again
+  do IO<Unit>:
+    IO.print("game " ++ U32.show(game) ++ " dealt afresh\n")
+    k(State{F.Board.deal_ms(game), {Nil{} : List<F.Board>}, {Nil{} : List<F.Board>}, input})
+
+def Game.run_hauled(got: Maybe<&2, P.Haul>, past: List<F.Board>, future: List<F.Board>, board: F.Board, +count: U32, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # the plays expanded the run, or refused it
+  match got:
+    case None{}:
+      do IO<Unit>:
+        IO.print("the rules refuse this run\n")
+        k(State{board, past, future, input})
+    case Some{P.Haul{+b2, ms}}:
+      do IO<Unit>:
+        IO.print("carried " ++ U32.show(count) ++ " cards in " ++ U32.show(P.Play.counted(ms)) ++ " single moves\n")
+        k(State{b2, board <> past, {Nil{} : List<F.Board>}, input})
+
+def Game.run(past: List<F.Board>, future: List<F.Board>, +board: F.Board, +col: U32, +count: U32, +target: U32, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # a column's climbing run, carried by the plays every face
+  # shares — one gesture, one undo
+  Game.run_hauled(P.Play.supermove(board, col, U32.sub(count, 1), target), past, future, board, count, input, k)
+
+def Game.handle(+game: U32, cmd: Cmd, input: File, +board: F.Board, past: List<F.Board>, future: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
   # one command, one answer, one next state
   match cmd:
     case Quit{}:
       do IO<Unit>:
         IO.print("bye\n")
     case Skip{}:
-      k(State{board, past, input})
+      k(State{board, past, future, input})
     case Help{}:
       do IO<Unit>:
         IO.print(Game.help())
-        k(State{board, past, input})
+        k(State{board, past, future, input})
     case Oops{msg}:
       do IO<Unit>:
         IO.print(msg ++ "\n")
-        k(State{board, past, input})
+        k(State{board, past, future, input})
     case Undo{}:
-      Game.undo(past, board, input, k)
+      Game.undo(past, future, board, input, k)
+    case Redo{}:
+      Game.redo(future, past, board, input, k)
+    case Safe{}:
+      Game.safe(past, future, board, input, k)
+    case Deal{}:
+      Game.deal(game, input, k)
+    case Run{+col, +count, +target}:
+      Game.run(past, future, board, col, count, target, input, k)
     case Play{move}:
       Game.play(F.Board.apply(board, move), board, past, input, k)
 
-def Game.line(input: File, line: String, board: F.Board, past: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
+def Game.line(+game: U32, cmd: Cmd, input: File, +board: F.Board, past: List<F.Board>, future: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
   # parse the line, then act on it
-  Game.handle(Parse.cmd(line), input, board, past, k)
+  Game.handle(game, cmd, input, board, past, future, k)
 
-def Game.read(fr: File & Result<&1, &1, U32 & String, String>, board: F.Board, past: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
+def Game.read(+game: U32, fr: File & Result<&1, &1, U32 & String, String>, board: F.Board, past: List<F.Board>, future: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
   # the handle back beside the line it read, "" at the end
   (input, r) = fr
-  Game.line(input, Result.default(&1, &1, U32 & String, String, r, ""), board, past, k)
+  Game.line(game, Parse.cmd(Result.default(&1, &1, U32 & String, String, r, "")), input, board, past, future, k)
 
-def Game.won(won: Bool, board: F.Board, past: List<F.Board>, input: File, k: State -> IO(Unit)) -> IO(Unit):
+def Game.won(+game: U32, won: Bool, board: F.Board, past: List<F.Board>, future: List<F.Board>, input: File, k: State -> IO(Unit)) -> IO(Unit):
   # won games end before reading a command
   match won:
     case True{}:
@@ -313,7 +447,7 @@ def Game.won(won: Bool, board: F.Board, past: List<F.Board>, input: File, k: Sta
       do IO<Unit>:
         IO.write("> ")
         fr : File & Result<&1, &1, U32 & String, String> <- File.read_line(input, 64)
-        Game.read(fr, board, past, k)
+        Game.read(game, fr, board, past, future, k)
 
 def Game.loop(fuel: Nat, +game: U32, st: State) -> IO(Unit):
   # show the board, read a command, act on it. One unit of fuel per
@@ -325,10 +459,10 @@ def Game.loop(fuel: Nat, +game: U32, st: State) -> IO(Unit):
         IO.print("session fuel spent — restart the program to keep playing\n")
     case 1n+p:
       match st:
-        case State{+board, past, input}:
+        case State{+board, past, future, input}:
           do IO<Unit>:
             IO.print("game " ++ U32.show(game) ++ "\n" ++ View.show(board) ++ "\n")
-            Game.won(F.Board.is_won(board), board, past, input, st2 => Game.loop(p, game, st2))
+            Game.won(game, F.Board.is_won(board), board, past, future, input, st2 => Game.loop(p, game, st2))
 
 def Game.pick.go(bad: Bool, seed: U32, again: Unit -> IO(U32)) -> IO(U32):
   # 11982, the one unsolvable deal of the classic range, is re-drawn
@@ -366,7 +500,7 @@ def Game.begin(session: U32 & F.Board, note: String) -> IO(Unit):
     IO.print(note)
     IO.print("freecell — type 'h' for help, 'q' to quit\n")
     input : File <- IO.try(File, File.open("/dev/stdin", "r"))
-    Game.loop(100000n, game, State{board, Nil{}, input})
+    Game.loop(100000n, game, State{board, {Nil{} : List<F.Board>}, {Nil{} : List<F.Board>}, input})
 
 def Game.begin_seed(+n: U32) -> IO(Unit):
   # a randomly drawn game, its number said out loud

@@ -4,6 +4,8 @@
 
 Freecell in Bend 2, end to end:
 - the abstract rules and the classic Microsoft deals in `freecell.bend`,
+- the plays beyond single moves — safe sends, supermoves — that
+  every frontend shares, in `plays.bend`,
 - the law/proof gate in `LAWS.bend` and `PROOF.bend`,
 - a terminal game in `terminal-game.bend`,
 - a beam-search solver in `solver.bend`,
@@ -134,13 +136,16 @@ two words, `<from> <to>`:
   1-8  a cascade column
   a-d  a free cell
   h    the foundation
-  
+
   e.g. '1 2'  the top of column 1 onto column 2
 ```
 
-Plus `u` (undo),
-`h` (help) and
-`q` (quit)
+A run is a count on the source — `'1:2 3'` carries two cards of
+column 1 onto column 3, expanded by the plays module every
+frontend shares into single moves the rules check.
+
+Plus `u` (undo), `r` (redo), `s` (safe home moves), `d` (deal
+afresh), `h` (help) and `q` (quit).
 
 A scripted session works over a pipe:
 
@@ -204,17 +209,22 @@ speak HTTP/1.0 and each connection carries one request:
 ```bash
 curl localhost:8080/1               # deal game 1, see it as JSON
 curl localhost:8080/1 -d "1 a"      # a move, the terminal game's words
+curl localhost:8080/1 -d "1:2 3"    # a run, in single moves
 curl localhost:8080/1 -d "u"        # take it back
+curl localhost:8080/1 -d "r"        # take it forward again
+curl localhost:8080/1 -d "s"        # every safe home move
+curl localhost:8080/1 -d "d"        # the same game, dealt afresh
+curl localhost:8080/random          # a random solvable game
 curl localhost:8080/1 -d "h"        # the commands, as JSON
 curl localhost:8080/games            # the open games
 ```
 
-Answers are JSON: the whole board — `cells`, `foundations` (suit
-by suit), `cascades` (each column bottom card first) and `won` —
-or `{"error": ...}` with a 4xx when the request or the move
-cannot be honored. The commands are the terminal game's own
-two-word moves, so a whole winning line can be piped in move by
-move:
+Answers are JSON: the whole board — `moves` (how many single
+moves were spent), `cells`, `foundations` (suit by suit),
+`cascades` (each column bottom card first) and `won` — or
+`{"error": ...}` with a 4xx when the request or the move cannot
+be honored. The commands are the terminal game's own words, so a
+whole winning line can be piped in move by move:
 
 ```bash
 bend solver.bend 1 2>/dev/null |

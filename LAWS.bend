@@ -2,6 +2,7 @@ import Base
 import ./freecell.bend as FreeCell
 import ./server.bend as Server
 import ./web/web.bend as Web
+import ./plays.bend as Play
 
 # ===================================================================
 # The laws of freecell: the claims the game rules must answer to.
@@ -72,15 +73,15 @@ law dim_names_the_buried_noise:
 # in exactly five single moves: two parks into free cells, the
 # landing of the run's top card, two restacks in reverse.
 law supermove_expands_the_climbing_run:
-  {Web.Web.super_moves(Web.Web.super_witness(), 0, 2, 1) == [FreeCell.CascadeToCell{0, 0}, FreeCell.CascadeToCell{0, 1}, FreeCell.CascadeToCascade{0, 1}, FreeCell.CellToCascade{1, 1}, FreeCell.CellToCascade{0, 1}] : +List<FreeCell.Move>}
+  {Play.Play.super_moves(Play.Play.super_witness(), 0, 2, 1) == [FreeCell.CascadeToCell{0, 0}, FreeCell.CascadeToCell{0, 1}, FreeCell.CascadeToCascade{0, 1}, FreeCell.CellToCascade{1, 1}, FreeCell.CellToCascade{0, 1}] : +List<FreeCell.Move>}
 
 # With one free cell and spare empty columns, the same run crosses
 # by staging its lower half on the first spare column, spending
 # the same five moves.
 law supermove_stages_over_a_spare_column:
-  {Web.Web.super_moves(Web.Web.stage_witness(), 0, 2, 1) == [FreeCell.CascadeToCascade{0, 2}, FreeCell.CascadeToCell{0, 3}, FreeCell.CascadeToCascade{0, 1}, FreeCell.CellToCascade{3, 1}, FreeCell.CascadeToCascade{2, 1}] : +List<FreeCell.Move>}
+  {Play.Play.super_moves(Play.Play.stage_witness(), 0, 2, 1) == [FreeCell.CascadeToCascade{0, 2}, FreeCell.CascadeToCell{0, 3}, FreeCell.CascadeToCascade{0, 1}, FreeCell.CellToCascade{3, 1}, FreeCell.CascadeToCascade{2, 1}] : +List<FreeCell.Move>}
 
 # With no free cell and no empty column, nothing bigger than one
 # card can cross, however willing the target.
 law supermove_refuses_what_the_cells_cannot_carry:
-  {Web.Web.is_some_super(Web.Web.supermove(Web.Web.crowded_witness(), 0, 2, 1)) == False{} : Bool}
+  {Play.Play.is_some_super(Play.Play.supermove(Play.Play.crowded_witness(), 0, 2, 1)) == False{} : Bool}
