@@ -208,8 +208,7 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
 }
 
 // the stepping protocol, straight through the page's own module
-const auto = fc.F.autoplay(64, fc.game.board);
-let state = fc.F.first(auto, 200);
+let state = fc.F.first(fc.game.board, 200);
 ok("search opens as a beam", state.$ === "Beam" && state.level === 200);
 state = fc.F.step(state);
 state = fc.F.step(state);

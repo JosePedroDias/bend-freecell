@@ -222,20 +222,19 @@
 // =================================================================
 // Every game decision — the deal, the legality of a move, the
 // board it produces, the win, the safe home moves, the search —
-// is a call into the bundled module (imported from ./web.bend,
-// which re-exports freecell.bend and solver.bend). This file only
-// draws the answers and reads the clicks.
+// is a call into the bundled module: ./web.bend, whose Web.* defs
+// are the whole vocabulary. This file only draws the answers and
+// reads the clicks.
 import W from "./web.bend";
 
 const F = {
-  deal:    W["freecell:Board.deal_ms"],
-  apply:   W["freecell:Board.apply"],
-  canMove: W["freecell:Board.can_move"],
-  isWon:   W["freecell:Board.is_won"],
-  autoplay: W["solver:Solver.autoplay"],
-  first:   W["solver:Solver.first"],
-  step:    W["solver:Beam.step"],
-  word:    W["solver:Solve.word"],
+  deal:    W["Web.deal"],
+  apply:   W["Web.move"],
+  canMove: W["Web.move_ok"],
+  isWon:   W["Web.won"],
+  autoplay: W["Web.safe"],
+  first:   W["Web.open"],
+  step:    W["Web.step"],
 };
 
 // --- the table's geometry ----------------------------------------
@@ -568,7 +567,7 @@ function redo() {
 function safeMoves() {
   if (game.paused) return;
   if (game.solving) game.cancelSolve = true;
-  const pair = F.autoplay(64, game.board);
+  const pair = F.autoplay(game.board);
   const moves = toArr(pair.snd);
   if (moves.length === 0) { say("no safe home moves", true); return; }
   game.past.push({board: game.board, n: moves.length});
@@ -607,7 +606,7 @@ async function solve(levels) {
   $("solvebar").classList.add("on");
   clearSelection();
   try {
-    let state = F.first(F.autoplay(64, game.board), budget);
+    let state = F.first(game.board, budget);
     let level = 0;
     while (state.$ === "Beam") {
       if (game.cancelSolve) break;

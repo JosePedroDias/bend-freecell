@@ -1,23 +1,24 @@
 // ===================================================================
 // solver-test.mjs — the page's search against the solver's own.
 // ===================================================================
-// The browser page cannot call Solver.solve: the one-shot search
-// takes ~19s in the JS target and would freeze the page. Instead it
-// opens the search with Solver.first and advances it one beam level
-// at a time with Beam.step, yielding between levels.
+// The browser page cannot call the one-shot search: it takes ~19s
+// in the JS target and would freeze the page. Instead it opens the
+// search with Web.open and advances it one beam level at a time
+// with Web.step, yielding between levels.
 //
 // This is the port, in HOW-TO-USE-BEND.md's sense: JS driving the
 // checked search from outside. The discipline that document asks
 // of a port is the differential test — same board into both paths,
 // same winning line out, forever. This file is that test: the
-// stepped line and the one-shot line for game 1 must agree, move
-// for move.
+// stepped line (Web.open/Web.step) and the one-shot line (Web.deep,
+// the CLI solver's own path) for game 1 must agree, move for move.
 //
 //   node solver-test.mjs     (~40s: two full searches)
 //
 // It gates solver.bend changes, not every commit — the deep check,
 // as the repo's own documents split the cheap gates from the deep
-// ones.
+// ones. The Web.* keys are the stable API; no module paths live
+// here, so this test survives a moved tree.
 
 import {execFileSync} from "child_process";
 import {mkdtempSync, rmSync} from "fs";
@@ -43,24 +44,23 @@ try {
   execFileSync(findBend(), [path.join(root, "web.bend"), "-o", out], {stdio: "inherit"});
   const W = (await import(pathToFileURL(out).href)).default;
 
-  const deal = W["freecell:Board.deal_ms"];
-  const autoplay = W["solver:Solver.autoplay"];
-  const first = W["solver:Solver.first"];
-  const step = W["solver:Beam.step"];
-  const solve = W["solver:Solver.solve"];
-  const word = W["solver:Solve.word"];
+  const deal = W["Web.deal"];
+  const open = W["Web.open"];
+  const step = W["Web.step"];
+  const deep = W["Web.deep"];
+  const moveWord = W["Web.move_word"];
 
   const board = deal(1);
 
   // the solver's own path: one call, run to its answer
   console.log("one-shot solve (the CLI solver's path)…");
   const t0 = performance.now();
-  const direct = solve(200, board);
+  const direct = deep(200, board);
   const t1 = performance.now();
 
   // the page's path: open, then one level at a time
   console.log("stepped solve (the browser's path)…");
-  let state = first(autoplay(64, board), 200);
+  let state = open(board, 200);
   let levels = 0;
   while (state.$ === "Beam") {
     state = step(state);
@@ -70,7 +70,7 @@ try {
   const t2 = performance.now();
 
   const toArr = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
-  const words = (line) => toArr(line).map(word);
+  const words = (line) => toArr(line).map(moveWord);
 
   console.log("one-shot:", direct.$, "in", ((t1 - t0) / 1000).toFixed(1) + "s");
   console.log("stepped: ", state.$, "after", levels, "levels in", ((t2 - t1) / 1000).toFixed(1) + "s");

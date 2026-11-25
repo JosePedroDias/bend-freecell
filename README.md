@@ -8,7 +8,7 @@ Freecell in Bend 2, end to end:
 - a terminal game in `terminal-game.bend`,
 - a beam-search solver in `solver.bend`,
 - an authoritative HTTP server in `server.bend`,
-- and a browser game in `web.html`, bundled by `./build-web.sh`.
+- and a browser game in `web/`, bundled by `./web/build-web.sh`.
 
 
 ## The documents
@@ -32,18 +32,18 @@ Freecell in Bend 2, end to end:
 ### Play in the browser
 
 ```bash
-./build-web.sh          # writes freecell.html: one self-contained file
-open freecell.html      # or just double-click it
+./web/build-web.sh       # writes web/freecell.html: one self-contained file
+open web/freecell.html   # or just double-click it
 ```
 
-The page is the compiled game. Bend bundles `web.html` — its SVG
-interface and the bend code it imports, through `web.bend` — into
-one JavaScript chunk, and `build-web.sh` splices that chunk back
-into the page. The result opens with a double-click: no server, no
-network, one file. Every game decision — the deal, the legality of
-a move, the board it produces, the win, the safe home moves, the
-search — is a call into the bundled checked code; the page only
-draws the answers and reads the clicks.
+The page is the compiled game. Bend bundles `web/web.html` — its SVG
+interface and the bend code it imports, through `web/web.bend` —
+into one JavaScript chunk, and `build-web.sh` splices that chunk
+back into the page. The result opens with a double-click: no
+server, no network, one file. Every game decision — the deal, the
+legality of a move, the board it produces, the win, the safe home
+moves, the search — is a call into the bundled checked code; the
+page only draws the answers and reads the clicks.
 
 Drag a card, or click a card and then its destination;
 double-click sends a card home when the rules allow it. `Undo`
@@ -55,14 +55,15 @@ deal; `Pause` (or `p`) holds it and hides the cards, so a break
 is not on the record. The page opens on a random
 solvable game, and so does `New` (the classic range, 11982
 re-rolled); a number and `Deal` deal exactly that game. The
-address names the game in play — `freecell.html#4242` is game
-4242, ready to send to a friend — and every deal writes it there.
+address names the game in play — `web/freecell.html#4242` is
+game 4242, ready to send to a friend — and every deal writes it
+there.
 
 ### Test the web build
 
 ```bash
-npm install        # once: jsdom, for the page's test
-node web-test.mjs  # builds freecell.html, then drives it
+(cd web && npm install)  # once: jsdom, for the page's test
+node web/web-test.mjs    # builds the page, then drives it
 ```
 
 The page's answers come from the bundled bend code, but its hands —
@@ -73,7 +74,7 @@ undo and redo, sends a safe ace home, wins a crafted endgame to see
 the banner, opens a search within a small budget, checks every
 column's paint order (including a card that lands exactly where it
 already was), and checks the deal box and the address name the
-game. It is the cheap gate for `web.html`.
+game. It is the cheap gate for `web/web.html`.
 
 The search the page drives — `Solver.first` stepped by `Beam.step`
 — is a port of the checked search in
@@ -82,7 +83,7 @@ differential test that document asks of a port: same board into
 both paths, same winning line out.
 
 ```bash
-node solver-test.mjs   # ~40s: the stepped line == the one-shot line
+node web/solver-test.mjs   # ~40s: the stepped line == the one-shot line
 ```
 
 That one takes the deep path — two full searches — so it gates
