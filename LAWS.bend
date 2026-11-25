@@ -120,3 +120,13 @@ law a_run_parks_one_card_apiece_in_the_free_cells:
 # column.
 law the_cells_park_only_what_is_free:
   {Play.Play.is_some_super(Play.Play.cellsmove(Play.Play.cells_witness(), 0, 2, 0)) == False{} : Bool}
+
+# A session drawn for an unnamed request rides back in the reply,
+# so the client that keeps its cookies keeps the game.
+law a_drawn_name_rides_back_in_the_reply:
+  {String.eq(Server.Http.set_cookie(Some{"drew"}), "Set-Cookie: sid=drew\r\n") == True{} : Bool}
+
+# A name the client already carried rides back never — the reply
+# hands out names, it does not echo them.
+law a_claimed_name_rides_back_never:
+  {String.eq(Server.Http.set_cookie(None{}), "") == True{} : Bool}

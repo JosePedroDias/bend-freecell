@@ -54,3 +54,9 @@ def Laws.a_run_parks_one_card_apiece_in_the_free_cells():
 
 def Laws.the_cells_park_only_what_is_free():
   {==}
+
+def Laws.a_drawn_name_rides_back_in_the_reply():
+  {==}
+
+def Laws.a_claimed_name_rides_back_never():
+  {==}

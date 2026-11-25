@@ -209,30 +209,30 @@ bend server.bend 9090        # another port
 ```
 
 The state lives in the server and nowhere else: every move is
-checked against the rules before it is believed, and several
-games can be open at once, each named by its number. Bring a
-cookie — `sid=alice` — and the games you ask for are alice's
-alone, kept under her name and resumed on every visit; the
-shared games answer anyone, and a session the server has not
-seen for an hour is wiped clean. `GET /games` lists the shared
-games only — one player's sessions are nobody else's business.
-Requests speak HTTP/1.1 and each connection carries one request,
-closed by its answer — the reply says `Connection: close`:
+checked against the rules before it is believed. Every request
+plays under a session name — the one its cookie claims, or a
+fresh one the server draws and hands back with the answer: keep
+the cookie, keep the game. curl keeps it with a jar (`-c j -b
+j`); a name can be claimed instead (`-b "sid=alice"`); to share
+a game, share a name. A session the server has not seen for an
+hour is wiped clean. Requests speak HTTP/1.1 and each connection
+carries one request, closed by its answer — the reply says
+`Connection: close`:
 
 ```bash
-curl localhost:8080/1               # deal game 1, see it as JSON
-curl localhost:8080/1 -d "1 a"      # a move, the terminal game's words
-curl localhost:8080/1 -d "1:2 3"    # a run, in single moves
-curl localhost:8080/1 -d "1:2 a"    # a run, parked in the cells one apiece
-curl localhost:8080/1 -d "e 3"      # the spade foundation's top, back down
-curl localhost:8080/1 -d "u"        # take it back
-curl localhost:8080/1 -d "r"        # take it forward again
-curl localhost:8080/1 -d "s"        # every safe home move
-curl localhost:8080/1 -d "d"        # the same game, dealt afresh
-curl localhost:8080/random          # a random solvable game
-curl localhost:8080/1 -d "h"        # the commands, as JSON
-curl localhost:8080/games           # the open games
-curl -b "sid=alice" localhost:8080/12 -d "1 a"   # alice's own game 12
+curl localhost:8080/1                        # a game of 1, dealt and shown
+curl -c j -b j localhost:8080/1 -d "1 a"     # a move, kept in the jar's session
+curl -c j -b j localhost:8080/1 -d "u"       # the same session: take it back
+curl -c j -b j localhost:8080/1 -d "1:2 3"   # a run, in single moves
+curl -c j -b j localhost:8080/1 -d "1:2 a"   # a run, parked in the cells one apiece
+curl -c j -b j localhost:8080/1 -d "e 3"     # the spade foundation's top, back down
+curl -c j -b j localhost:8080/1 -d "r"       # take it forward again
+curl -c j -b j localhost:8080/1 -d "s"       # every safe home move
+curl -c j -b j localhost:8080/1 -d "d"       # the same game, dealt afresh
+curl -b "sid=alice" localhost:8080/12 -d "1 a"   # by name: alice's own game 12
+curl localhost:8080/random                    # a random solvable game
+curl localhost:8080/1 -d "h"                  # the commands, as JSON
+curl localhost:8080/games                     # the open games, by their sessions
 ```
 
 Answers are JSON: the whole board — `moves` (how many single
@@ -244,8 +244,8 @@ whole winning line can be piped in move by move:
 
 ```bash
 bend solver.bend 1 2>/dev/null |
-  while read a b; do curl -s localhost:8080/1 -d "$a $b" > /dev/null; done
-curl -s localhost:8080/1            # "won": true
+  while read a b; do curl -s -c j -b j localhost:8080/1 -d "$a $b" > /dev/null; done
+curl -s -c j -b j localhost:8080/1   # "won": true
 ```
 
 One connection is served at a time — freecell is a turn-based
