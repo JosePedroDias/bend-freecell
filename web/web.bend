@@ -26,9 +26,9 @@ import ../plays.bend as P
 #
 # main is a self-check of the calling convention the page uses:
 # the rules consulted, a refusal taken, the autoplay replayed,
-# the search stepped by hand, the dim rule named, a run crossed
-# and one refused, a home card offered back down. It prints
-# "web api ok" and quits, the same pattern as the server's
+# the search stepped by hand, the dim rule named, a run crossed,
+# one refused and one parked, a home card offered back down. It
+# prints "web api ok" and quits, the same pattern as the server's
 # House.self_check.
 
 # --- The page's vocabulary ---------------------------------------
@@ -86,6 +86,12 @@ def Web.supermove(+b: F.Board, +col: U32, +upto: U32, +target: U32) -> Maybe<&2,
   # shared play, under its page name, so the page and its tests
   # keep their key
   P.Play.supermove(b, col, upto, target)
+
+def Web.cellsmove(+b: F.Board, +col: U32, +upto: U32, +cell: U32) -> Maybe<&2, P.Haul>:
+  # the atomic moves of parking a run into the free cells, one card
+  # apiece — the shared play, under its page name, so the page and
+  # its tests keep their key
+  P.Play.cellsmove(b, col, upto, cell)
 
 # --- The dim rule -------------------------------------------------
 # The cards the page darkens: buried cards that are no aces, are
@@ -232,6 +238,16 @@ def main() -> IO(Unit):
     +crowded : F.Board = P.Play.crowded_witness()
     Web.expect(Bool.not(P.Play.is_some_super(Web.supermove(crowded, 0, 2, 1))),
       "no cells and no empty columns should refuse any run")
+    # the parking vocabulary, through the page's own words: the
+    # witness's climbing pair fills the two free cells in two
+    # moves, and neither three cards nor a held cell can park
+    +parked : F.Board = P.Play.cells_witness()
+    Web.expect(P.Play.super_check(Web.cellsmove(parked, 0, 1, 0), P.Play.cells_lands(), 2n),
+      "a climbing pair should park in two free cells")
+    Web.expect(Bool.not(P.Play.is_some_super(Web.cellsmove(parked, 0, 2, 0))),
+      "three cards should not fit two free cells")
+    Web.expect(Bool.not(P.Play.is_some_super(Web.cellsmove(parked, 0, 1, 2))),
+      "a cell that holds a card should start no parking")
     # the foundations are a home, not a trap: the ace of spades
     # comes back down onto an empty column, and an empty foundation
     # gives nothing back

@@ -108,3 +108,15 @@ law a_home_card_comes_back_down:
 # column: the hearts foundation holds nothing on any fresh deal.
 law an_empty_foundation_gives_nothing_back:
   {FreeCell.Board.can_move(FreeCell.Board.deal_ms(1), FreeCell.FoundationToCascade{1, 5}) == False{} : Bool}
+
+# A run can also leave its column sideways: parking into the free
+# cells, one card apiece. The witness's climbing pair — 3♥ under
+# 4♠ — fills the two free cells in exactly two moves, the working
+# card first.
+law a_run_parks_one_card_apiece_in_the_free_cells:
+  {Play.Play.cells_moves(Play.Play.cells_witness(), 0, 1, 0) == [FreeCell.CascadeToCell{0, 0}, FreeCell.CascadeToCell{0, 1}] : +List<FreeCell.Move>}
+
+# More cards than free cells park nothing, however willing the
+# column.
+law the_cells_park_only_what_is_free:
+  {Play.Play.is_some_super(Play.Play.cellsmove(Play.Play.cells_witness(), 0, 2, 0)) == False{} : Bool}

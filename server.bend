@@ -21,6 +21,7 @@ import ./plays.bend as P
 #   curl localhost:8080/1 -d "s"       # every safe home move
 #   curl localhost:8080/1 -d "d"       # the same game, dealt afresh
 #   curl localhost:8080/1 -d "1:2 3"   # a run, in single moves
+#   curl localhost:8080/1 -d "1:2 a"   # a run, parked in the cells one apiece
 #   curl localhost:8080/1 -d "e 3"     # the spade foundation's top, back down
 #   curl localhost:8080/random         # a random solvable game
 #   curl localhost:8080/games          # the open games
@@ -362,6 +363,22 @@ def House.run(+games: +Map<Session>, +game: U32, s: Session, +col: U32, +count: 
     case Session{+board, _, _, _}:
       House.run_hauled(P.Play.supermove(board, col, U32.sub(count, 1), target), games, game, s)
 
+def House.park_hauled(got: Maybe<&2, P.Haul>, +games: +Map<Session>, +game: U32, s: Session) -> +Map<Session> & Response:
+  # the plays parked the run, or refused it
+  match got:
+    case None{}:
+      House.err(games, 409, "Conflict", "the free cells cannot hold this run")
+    case Some{P.Haul{+b2, ms}}:
+      House.applied_board(b2, P.Play.counted(ms), games, game, s)
+
+def House.park(+games: +Map<Session>, +game: U32, s: Session, +col: U32, +count: U32, +cell: U32) -> +Map<Session> & Response:
+  # a column's climbing run, parked in the free cells one card
+  # apiece by the plays every face shares — one gesture, one step,
+  # one undo
+  match s:
+    case Session{+board, _, _, _}:
+      House.park_hauled(P.Play.cellsmove(board, col, U32.sub(count, 1), cell), games, game, s)
+
 def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> +Map<Session> & Response:
   # a command in the terminal game's words, judged by the same rules
   match cmd:
@@ -369,6 +386,8 @@ def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> 
       House.play(games, game, s, move)
     case T.Run{+col, +count, +target}:
       House.run(games, game, s, col, count, target)
+    case T.Park{+col, +count, +cell}:
+      House.park(games, game, s, col, count, cell)
     case T.Undo{}:
       House.undo(games, game, s)
     case T.Redo{}:
@@ -384,7 +403,7 @@ def House.command(+games: +Map<Session>, +game: U32, s: Session, cmd: T.Cmd) -> 
     case T.Quit{}:
       House.err(games, 400, "Bad Request", "q is for the terminal; here, closing the connection is quitting")
     case T.Skip{}:
-      House.err(games, 400, "Bad Request", "post a command: '1 2' moves a card, '1:2 3' carries a run, 'e 3' pulls a card back down, 's' sends safely, 'u' undoes, 'r' redoes, 'd' deals afresh, 'h' helps")
+      House.err(games, 400, "Bad Request", "post a command: '1 2' moves a card, '1:2 3' carries a run, '1:2 a' parks it in the cells, 'e 3' pulls a card back down, 's' sends safely, 'u' undoes, 'r' redoes, 'd' deals afresh, 'h' helps")
 
 def House.with_session(pair: +Map<Session> & Session, +game: U32, +cmd: T.Cmd) -> +Map<Session> & Response:
   (games2, s) = pair

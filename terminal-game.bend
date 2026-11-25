@@ -11,9 +11,10 @@ import ./plays.bend as P
 #
 # Moves are two words, <from> <to>: 1-8 a cascade, a-d a cell, h the
 # foundations. A run is a count on the source: '1:2 3' carries two
-# cards of column 1 onto column 3, expanded by the shared plays
-# module into single moves the rules check. As a source, e-h names
-# a foundation and pulls its top card back down: 'e 3'. Plus u
+# cards of column 1 onto column 3, or '1:2 a' parks them in the
+# cells one card apiece — both expanded by the shared plays module
+# into single moves the rules check. As a source, e-h names a
+# foundation and pulls its top card back down: 'e 3'. Plus u
 # (undo), r (redo), s (safe home moves), d (deal afresh), h (help)
 # and q (quit).
 #
@@ -55,6 +56,7 @@ type Grab is Data:
 type Cmd is Data:
   Play{move: F.Move}
   Run{col: U32, count: U32, target: U32}
+  Park{col: U32, count: U32, cell: U32}
   Undo{}
   Redo{}
   Safe{}
@@ -235,27 +237,16 @@ def Parse.grab(tok: String) -> Maybe<&2, Grab>:
   # "col:count" — a column, and how many of its cards to carry
   Parse.grab_parts(String.split(tok, ':'))
 
-def Parse.run_target(target: Place) -> Maybe<&2, U32>:
-  # a run lands on a column
-  match target:
-    case Col{idx}:
-      Some{idx}
-    case _:
-      None{}
-
-def Parse.run_of(got: Maybe<&2, U32>, +col: U32, +count: U32) -> Cmd:
-  # the target column, if the run has one
-  match got:
-    case Some{t}:
+def Parse.run_cmd(g: Grab, +target: Place) -> Cmd:
+  # "1:2 3" — carry two cards of column 1 onto column 3; "1:2 a" —
+  # park them in the cells, one card apiece from cell a on
+  match g target:
+    case Grab{+col, +count} Col{t}:
       Run{col, count, t}
-    case None{}:
-      Oops{"a run lands only on a column: 1-8"}
-
-def Parse.run_cmd(g: Grab, target: Place) -> Cmd:
-  # "1:2 3" — carry two cards of column 1 onto column 3
-  match g:
-    case Grab{+col, +count}:
-      Parse.run_of(Parse.run_target(target), col, count)
+    case Grab{+col, +count} CellP{c}:
+      Park{col, count, c}
+    case _ _:
+      Oops{"a run lands on a column or parks in cells: 1-8, a-d"}
 
 def Parse.move_cmd(src: Place, dst: Place) -> Cmd:
   # the six moves, and why any other pair makes no sense
@@ -400,9 +391,10 @@ def Game.help() -> String:
   l8 = {"       'e 3'  the spade foundation's top card onto column 3\n" : String}
   l9 = {"  a run carries a column's climbing cards together:\n" : String}
   l10 = {"       '1:2 3'  two cards of column 1 onto column 3\n" : String}
-  l11 = {"s: safe home moves    d: deal afresh\n" : String}
-  l12 = {"u: undo    r: redo    q: quit    h: help\n" : String}
-  l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7 ++ l8 ++ l9 ++ l10 ++ l11 ++ l12
+  l11 = {"       '1:2 a'  two cards of column 1 into the cells, from a on\n" : String}
+  l12 = {"s: safe home moves    d: deal afresh\n" : String}
+  l13 = {"u: undo    r: redo    q: quit    h: help\n" : String}
+  l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6 ++ l7 ++ l8 ++ l9 ++ l10 ++ l11 ++ l12 ++ l13
 
 def Game.play(got: Maybe<&2, F.Board>, board: F.Board, past: List<F.Board>, input: File, k: State -> IO(Unit)) -> IO(Unit):
   # a legal move goes onto the history, and the redo history dies;
@@ -476,6 +468,23 @@ def Game.run(past: List<F.Board>, future: List<F.Board>, +board: F.Board, +col: 
   # shares — one gesture, one undo
   Game.run_hauled(P.Play.supermove(board, col, U32.sub(count, 1), target), past, future, board, count, input, k)
 
+def Game.park_hauled(got: Maybe<&2, P.Haul>, past: List<F.Board>, future: List<F.Board>, board: F.Board, +count: U32, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # the plays parked the run, or refused it
+  match got:
+    case None{}:
+      do IO<Unit>:
+        IO.print("the free cells cannot hold this run\n")
+        k(State{board, past, future, input})
+    case Some{P.Haul{+b2, ms}}:
+      do IO<Unit>:
+        IO.print("parked " ++ U32.show(count) ++ " cards in " ++ U32.show(P.Play.counted(ms)) ++ " single moves\n")
+        k(State{b2, board <> past, {Nil{} : List<F.Board>}, input})
+
+def Game.park(past: List<F.Board>, future: List<F.Board>, +board: F.Board, +col: U32, +count: U32, +cell: U32, input: File, k: State -> IO(Unit)) -> IO(Unit):
+  # a column's climbing run, parked in the free cells one card
+  # apiece by the plays every face shares — one gesture, one undo
+  Game.park_hauled(P.Play.cellsmove(board, col, U32.sub(count, 1), cell), past, future, board, count, input, k)
+
 def Game.handle(+game: U32, cmd: Cmd, input: File, +board: F.Board, past: List<F.Board>, future: List<F.Board>, k: State -> IO(Unit)) -> IO(Unit):
   # one command, one answer, one next state
   match cmd:
@@ -484,6 +493,8 @@ def Game.handle(+game: U32, cmd: Cmd, input: File, +board: F.Board, past: List<F
         IO.print("bye\n")
     case Skip{}:
       k(State{board, past, future, input})
+    case Park{+col, +count, +cell}:
+      Game.park(past, future, board, col, count, cell, input, k)
     case Help{}:
       do IO<Unit>:
         IO.print(Game.help())

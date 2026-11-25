@@ -417,6 +417,57 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
   ok("one undo takes the whole crossing back", fc.game.moves === 0 && head(0) === "Hearts-Three");
 }
 
+// a grabbed run parks into the free cells, one card apiece — the
+// module expands it, the page plays the moves a beat apart, the
+// whole parking one undo — and the cells take only what is free:
+// the named cell must be empty, and the run must fit
+{
+  const toJs = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+  const head = (col) => { const pile = toJs(toJs(fc.game.board.cascades)[col]); return pile.length ? pile[0].suit.$ + "-" + pile[0].rank.$ : null; };
+  const cells = () => toJs(fc.game.board.cells).map((c) => c.$ === "Some" ? c.value.suit.$ + "-" + c.value.rank.$ : null);
+  const reset = () => { fc.game.moves = 0; fc.game.past.length = 0; fc.game.future.length = 0; };
+  const board = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")],
+     [Card("Clubs", "Six")], [], [], [], [], [], []],
+    [null, null, Card("Spades", "Seven"), Card("Hearts", "Eight")], [0, 0, 0, 0]);
+  const got = fc.F.cellsmove(board, 0, 1, 0);
+  ok("the parking expands", got.$ === "Some");
+  const ms = toJs(got.value.moves);
+  ok("two cards park in two moves", ms.length === 2);
+  ok("the working card parks in the named cell", ms[0].$ === "CascadeToCell" && ms[0].cell === 0 && ms[1].cell === 1);
+  ok("too many cards refuse", fc.F.cellsmove(board, 0, 2, 0).$ === "None");
+  ok("a held cell starts no parking", fc.F.cellsmove(board, 0, 1, 2).$ === "None");
+  const wrap = fc.F.cellsmove(board, 0, 1, 1);
+  ok("the parking wraps around the held cells", wrap.$ === "Some" && toJs(wrap.value.moves).map((m) => m.cell).join(" ") === "1 0");
+  // a spare free cell stays spare: the run parks one card apiece,
+  // not one per free cell
+  const spare = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")], [], [], [], [], [], [], []],
+    [null, null, null, Card("Spades", "Seven")], [0, 0, 0, 0]);
+  const sp = fc.F.cellsmove(spare, 0, 1, 0);
+  ok("a spare free cell stays spare", sp.$ === "Some" && toJs(sp.value.moves).length === 2 && toJs(sp.value.moves).every((m) => m.$ === "CascadeToCell"));
+  // the UI path: beats, one undo
+  fc.game.board = board;
+  fc.render(); reset();
+  ok("the page parks the run", await fc.playCells(0, 1, 0) === true);
+  ok("two moves counted", fc.game.moves === 2);
+  ok("the pair sits in the free cells",
+     JSON.stringify(cells()) === JSON.stringify(["Hearts-Three", "Spades-Four", "Spades-Seven", "Hearts-Eight"]));
+  ok("the five of diamonds is left working", head(0) === "Diamonds-Five");
+  fc.undo();
+  ok("one undo takes the parking back", fc.game.moves === 0 && head(0) === "Hearts-Three");
+  // the smart move's last resort: a run no column takes parks
+  fc.game.board = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")], [Card("Diamonds", "Nine")],
+     [Card("Diamonds", "Nine")]],
+    [null, null, null, null], [0, 0, 0, 0]);
+  fc.render(); reset();
+  ok("a run no column takes parks in the cells", fc.smartMove({kind: "cascade", idx: 0, upto: 2}) === true);
+  await sleep(450); // the three beats
+  ok("three cards parked, one apiece", fc.game.moves === 3 && cells()[0] === "Hearts-Three" && cells()[2] === "Diamonds-Five");
+}
 
 // the stepping protocol, straight through the page's own module
 let state = fc.F.first(fc.game.board, 200);

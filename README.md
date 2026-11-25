@@ -56,7 +56,9 @@ you grab — crosses to another column in one gesture, expanded by
 the module into single moves that the page plays a beat apart,
 every one checked by the rules; the whole crossing is one undo,
 and the cells and empty columns set how much one gesture can
-carry. Buried
+carry. A run can also leave sideways: dropped on the free cells,
+it fills them one card apiece, starting where you drop it, when
+they can hold it. Buried
 cards that are not aces, not wanted by their foundations, and not
 part of a rising run — each card a place the one beneath it can
 rest on — are darkened: the noise to clear away. The module names
@@ -145,8 +147,9 @@ two words, `<from> <to>`:
 ```
 
 A run is a count on the source — `'1:2 3'` carries two cards of
-column 1 onto column 3, expanded by the plays module every
-frontend shares into single moves the rules check.
+column 1 onto column 3, or `'1:2 a'` parks them in the free cells
+one card apiece from cell a on — both expanded by the plays module
+every frontend shares into single moves the rules check.
 
 Plus `u` (undo), `r` (redo), `s` (safe home moves), `d` (deal
 afresh), `h` (help) and `q` (quit).
@@ -214,6 +217,7 @@ speak HTTP/1.0 and each connection carries one request:
 curl localhost:8080/1               # deal game 1, see it as JSON
 curl localhost:8080/1 -d "1 a"      # a move, the terminal game's words
 curl localhost:8080/1 -d "1:2 3"    # a run, in single moves
+curl localhost:8080/1 -d "1:2 a"    # a run, parked in the cells one apiece
 curl localhost:8080/1 -d "e 3"      # the spade foundation's top, back down
 curl localhost:8080/1 -d "u"        # take it back
 curl localhost:8080/1 -d "r"        # take it forward again

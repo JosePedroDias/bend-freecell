@@ -11,9 +11,10 @@ import ./solver.bend as S
 # every card home the foundations would take without risk, and a
 # supermove carries a column's climbing run onto another column in
 # one gesture, expanded into the single moves the rules take. The
-# browser page, the terminal game and the HTTP server all speak
-# these words, and the laws state the gaits outright — so a play
-# may never quietly change its steps.
+# parking play is its sideways kin: a run fills the free cells,
+# one card apiece. The browser page, the terminal game and the
+# HTTP server all speak these words, and the laws state the gaits
+# outright — so a play may never quietly change its steps.
 #
 # The rules stay the only judge: every move a play expands is
 # checked again by Board.apply where it is played, exactly as if
@@ -283,7 +284,7 @@ def Play.supermove(+b: F.Board, +col: U32, +upto: U32, +target: U32) -> Maybe<&2
   # step checked by the rules, exactly as if played by hand
   Play.super_go(b, col, upto, target, Play.super_ok(b, col, upto, target))
 
-def Play.super_moves_go(got: Maybe<&2, Haul>) -> +List<F.Move>:
+def Play.haul_moves(got: Maybe<&2, Haul>) -> +List<F.Move>:
   # the haul's moves, or nothing at all
   match got:
     case Some{Haul{_, ms}}:
@@ -295,7 +296,108 @@ def Play.super_moves(w: F.Board, +col: U32, +upto: U32, +target: U32) -> +List<F
   # the moves of a supermove, in the order they play — nothing at
   # all when the run cannot cross. The law states these outright,
   # so a supermove may never quietly change its gait
-  Play.super_moves_go(Play.supermove(w, col, upto, target))
+  Play.haul_moves(Play.supermove(w, col, upto, target))
+
+# --- Runs to the cells -------------------------------------------
+# The parking play: a grabbed run leaves its column sideways,
+# filling the free cells one card apiece — the working card into
+# the named cell first, then each card above it into the next
+# free cell, walking around. The rules take only single moves, so
+# the parking is a list of CascadeToCell moves, every one checked
+# again by Board.apply as the face plays it — and the whole
+# parking is one undo, like any crossing.
+
+def Play.park_rot(fuel: Nat, cells: +List<+Maybe<F.Card>>, +acc: +List<+Maybe<F.Card>>) -> +List<+Maybe<F.Card>>:
+  # the cells rotated left by fuel — so a walk over them begins at
+  # the named cell
+  match fuel:
+    case 0n:
+      List.append(&2, +Maybe<F.Card>, cells, acc)
+    case 1n+p:
+      match cells:
+        case Nil{}:
+          acc
+        case +slot <> +rest:
+          Play.park_rot(p, rest, List.append(&2, +Maybe<F.Card>, acc, slot <> {Nil{} : +List<+Maybe<F.Card>>}))
+
+def Play.park_walk(cells: +List<+Maybe<F.Card>>, +c: U32, +acc: +List<U32>) -> +List<U32>:
+  # the free cells of the rotated list, named absolutely: the cells
+  # a run parks in, first chosen first filled
+  match cells:
+    case Nil{}:
+      acc
+    case +slot <> +rest:
+      match slot:
+        case None{}:
+          +idx : U32 = U32.mod(c, 4)
+          Play.park_walk(rest, U32.add(c, 1), List.append(&2, U32, acc, idx <> {Nil{} : +List<U32>}))
+        case Some{_}:
+          Play.park_walk(rest, U32.add(c, 1), acc)
+
+def Play.park_cells(+cell: U32, cells: +List<+Maybe<F.Card>>) -> +List<U32>:
+  # the free cells in circular order from the named one: the cells
+  # a run parks in, first chosen first filled
+  +at : U32 = U32.mod(cell, 4)
+  Play.park_walk(Play.park_rot(U32.to_nat(at), cells, {Nil{} : +List<+Maybe<F.Card>>}), at, {Nil{} : +List<U32>})
+
+def Play.park_moves(k: Nat, +col: U32, +parks: +List<U32>) -> +List<F.Move>:
+  # one move per card of the run — not one per free cell — one park
+  # cell apiece, in fill order: the working card into the first,
+  # the card above into the next, and a spare cell stays spare
+  match k parks:
+    case 0n _:
+      {Nil{} : +List<F.Move>}
+    case 1n+p +c <> +cs:
+      F.CascadeToCell{col, c} <> Play.park_moves(p, col, cs)
+    case _ Nil{}:
+      {Nil{} : +List<F.Move>}
+
+def Play.parks_enough(+parks: +List<U32>, +k: U32) -> Bool:
+  # the run needs k cells, one apiece
+  U32.is_le(k, U32.from_nat(List.length(&2, U32, parks)))
+
+def Play.cells_ok(+b: F.Board, +col: U32, +upto: U32, +cell: U32) -> Bool:
+  # every promise the parking asks, in one answer: the named cell
+  # exists and is free, the grabbed cards climb from the working
+  # card, and the free cells from the named one can hold them all
+  +pile : +List<F.Card> = Maybe.default(&2, +List<F.Card>, F.Piles.get(Play.piles_of(b), col), {Nil{} : +List<F.Card>})
+  +parks : +List<U32> = Play.park_cells(cell, Play.cells_of(b))
+  U32.is_lt(cell, 4) && F.Cells.is_free(Play.cells_of(b), cell) && U32.is_lt(upto, F.Pile.run_len(pile)) && Play.parks_enough(parks, U32.add(upto, 1))
+
+def Play.cells_done(got: Maybe<&2, F.Board>, +ms: +List<F.Move>) -> Maybe<&2, Haul>:
+  # the parking's answer: the board it reaches, and the moves
+  match got:
+    case Some{+b2}:
+      Some{Haul{b2, ms}}
+    case None{}:
+      None{}
+
+def Play.cells_go(+b: F.Board, +col: U32, +upto: U32, +cell: U32, ok: Bool) -> Maybe<&2, Haul>:
+  match ok:
+    case True{}:
+      +parks : +List<U32> = Play.park_cells(cell, Play.cells_of(b))
+      +ms : +List<F.Move> = Play.park_moves(U32.to_nat(U32.add(upto, 1)), col, parks)
+      Play.cells_done(Play.try_all(ms, Some{b}), ms)
+    case False{}:
+      None{}
+
+def Play.cellsmove(+b: F.Board, +col: U32, +upto: U32, +cell: U32) -> Maybe<&2, Haul>:
+  # the atomic moves of parking a run — a column's working card
+  # and the cards stacked on it, up to the grabbed one — into the
+  # free cells, one card apiece, the working card into the named
+  # cell first and the rest into the free cells after it, around:
+  # Some with the board they reach, when the cards climb, the named
+  # cell is free and the cells can hold them all; None when any
+  # promise fails. The faces play the moves one by one through
+  # Board.apply, every step checked by the rules, exactly as if
+  # played by hand
+  Play.cells_go(b, col, upto, cell, Play.cells_ok(b, col, upto, cell))
+
+def Play.cells_moves(w: F.Board, +col: U32, +upto: U32, +cell: U32) -> +List<F.Move>:
+  # the moves of a parking, in the order they play — nothing at
+  # all when the cells cannot hold the run. The law states these
+  # outright, so a parking may never quietly change its gait
+  Play.haul_moves(Play.cellsmove(w, col, upto, cell))
 
 def Play.super_witness() -> F.Board:
   # a board for the supermove checks: 3♥-4♠-5♦ climbs a column,
@@ -353,4 +455,24 @@ def Play.crowded_witness() -> F.Board:
      F.Card{F.Spades{}, F.Jack{}} <> empty,
      F.Card{F.Hearts{}, F.Queen{}} <> empty],
     [Some{F.Card{F.Clubs{}, F.Ace{}}}, Some{F.Card{F.Diamonds{}, F.Two{}}}, Some{F.Card{F.Clubs{}, F.King{}}}, Some{F.Card{F.Diamonds{}, F.Ace{}}}],
+    [0, 0, 0, 0]}
+
+def Play.cells_witness() -> F.Board:
+  # a board for the parking play: 3♥-4♠-5♦ climbs a column, two
+  # cells stand free and two hold cards
+  +empty : +List<F.Card> = {Nil{} : +List<F.Card>}
+  F.Board{
+    [F.Card{F.Hearts{}, F.Three{}} <> (F.Card{F.Spades{}, F.Four{}} <> (F.Card{F.Diamonds{}, F.Five{}} <> empty)),
+     F.Card{F.Clubs{}, F.Six{}} <> empty, empty, empty, empty, empty, empty, empty],
+    [None{}, None{}, Some{F.Card{F.Spades{}, F.Seven{}}}, Some{F.Card{F.Hearts{}, F.Eight{}}}],
+    [0, 0, 0, 0]}
+
+def Play.cells_lands() -> F.Board:
+  # the parking's answer on the witness: the climbing pair in the
+  # two free cells, the five of diamonds left working
+  +empty : +List<F.Card> = {Nil{} : +List<F.Card>}
+  F.Board{
+    [F.Card{F.Diamonds{}, F.Five{}} <> empty,
+     F.Card{F.Clubs{}, F.Six{}} <> empty, empty, empty, empty, empty, empty, empty],
+    [Some{F.Card{F.Hearts{}, F.Three{}}}, Some{F.Card{F.Spades{}, F.Four{}}}, Some{F.Card{F.Spades{}, F.Seven{}}}, Some{F.Card{F.Hearts{}, F.Eight{}}}],
     [0, 0, 0, 0]}

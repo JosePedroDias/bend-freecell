@@ -48,3 +48,9 @@ def Laws.a_home_card_comes_back_down():
 
 def Laws.an_empty_foundation_gives_nothing_back():
   {==}
+
+def Laws.a_run_parks_one_card_apiece_in_the_free_cells():
+  {==}
+
+def Laws.the_cells_park_only_what_is_free():
+  {==}

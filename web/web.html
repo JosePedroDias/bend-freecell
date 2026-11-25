@@ -245,6 +245,7 @@ const F = {
   dimmed:  W["Web.dim"],
   grab:    W["Web.grab"],
   supermove: W["Web.supermove"],
+  cellsmove: W["Web.cellsmove"],
 };
 
 // --- the table's geometry ----------------------------------------
@@ -591,10 +592,13 @@ function markLegal(src) {
         slotEls.cascade[t].classList.add("legal");
       }
     }
-    // cells and foundations take single cards only
+    // cells and foundations take single cards only — but a run
+    // parks in the free cells, one card apiece
     if (src.upto === 0) {
       for (let c = 0; c < 4; c++) if (canMove(M.cascadeToCell(src.idx, c))) slotEls.cell[c].classList.add("legal");
       if (canMove(M.cascadeToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
+    } else {
+      for (let c = 0; c < 4; c++) if (cellsPlay(src.idx, src.upto, c)) slotEls.cell[c].classList.add("legal");
     }
   } else if (src.kind === "foundation") {
     // the pull: only a column can take a card back down
@@ -878,6 +882,13 @@ function tryTarget(slot, src) {
     say("illegal move", true);
     return;
   }
+  if (slot.kind === "cell" && src.kind === "cascade" && src.upto > 0) {
+    // a run parks into the free cells, one card apiece
+    const ms = cellsPlay(src.idx, src.upto, slot.idx);
+    if (ms) { playMoves(ms); return; }
+    say("the free cells cannot hold that run", true);
+    return;
+  }
   if (src.upto !== 0) { say("a run lands only on a column", true); return; }
   const m = moveFor(src, slot);
   if (m && canMove(m)) play(m);
@@ -906,6 +917,13 @@ function smartMove(src) {
     } else {
       const m = moveFor(src, {kind: "cascade", idx: t});
       if (m && canMove(m)) { play(m); return true; }
+    }
+  }
+  if (src.kind === "cascade" && src.upto > 0) {
+    // a run with no willing column parks in the cells, one apiece
+    for (let c = 0; c < 4; c++) {
+      const ms = cellsPlay(src.idx, src.upto, c);
+      if (ms) { playMoves(ms); return true; }
     }
   }
   if (src.kind === "cascade" && src.upto === 0) {
@@ -952,6 +970,11 @@ svg.addEventListener("pointerup", (e) => {
     if (slot && slot.kind === "cascade" && d.src.kind === "cascade") {
       const got = F.supermove(game.board, d.src.idx, d.src.upto, slot.idx);
       if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return; }
+    }
+    if (slot && slot.kind === "cell" && d.src.kind === "cascade" && d.src.upto > 0) {
+      // a dragged run parks into the free cells, one card apiece
+      const ms = cellsPlay(d.src.idx, d.src.upto, slot.idx);
+      if (ms) { playMoves(ms); return; }
     }
     if (slot && d.src.upto === 0) {
       const m = moveFor(d.src, slot);
@@ -1030,8 +1053,25 @@ async function playSuper(col, upto, target) {
   return true;
 }
 
+// the atomic moves of parking a run into the free cells, in fill
+// order — or null when the cells cannot hold it
+function cellsPlay(col, upto, cell) {
+  const got = F.cellsmove(game.board, col, upto, cell);
+  return got.$ === "Some" ? toArr(got.value.moves) : null;
+}
+
+// a run parks into the cells through the UI's own path: the module
+// expands it, the page plays the moves — for the console and the
+// tests
+async function playCells(col, upto, cell) {
+  const ms = cellsPlay(col, upto, cell);
+  if (!ms) return false;
+  await playMoves(ms);
+  return true;
+}
+
 // a handle for the console, and for the page's own tests
-window.freecell = {game, F, newGame, play, playSuper, smartMove, undo, redo, safeMoves, solve, render, togglePause};
+window.freecell = {game, F, newGame, play, playSuper, playCells, smartMove, undo, redo, safeMoves, solve, render, togglePause};
 
 // the page opens the way New deals — a random game from the classic
 // range, 11982 re-rolled — unless the address hands one over, in

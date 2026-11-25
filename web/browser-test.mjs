@@ -359,6 +359,61 @@ try {
     check("it took the lit column, not a cell (" + crossed.landed + ")",
           crossed.moves === 1 && crossed.landed === "Spades-Two");
   }
+
+  // 8. a grabbed run parks into the free cells: click the run's
+  // middle card — the free cells light — click one, and the pair
+  // parks one card apiece, a beat apart
+  {
+    const Con = (h, t) => ({$: "Con", head: h, tail: t});
+    const Nil = {$: "Nil"};
+    const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+    const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+    const lay = (board) => page.evaluate((board) => {
+      const fc = window.freecell;
+      fc.game.board = board;
+      fc.game.moves = 0;
+      fc.game.past.length = 0;
+      fc.game.future.length = 0;
+      fc.render();
+      return true;
+    }, board);
+    check("the parking board is laid", await lay({$: "Board",
+      cascades: list([list([Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")]),
+                      list([Card("Clubs", "Six")]), Nil, Nil, Nil, Nil, Nil, Nil]),
+      cells: list([{$: "None"}, {$: "None"},
+                   {$: "Some", value: Card("Spades", "Seven")}, {$: "Some", value: Card("Hearts", "Eight")}]),
+      founds: list([0, 0, 0, 0])}) === true);
+    await sleep(350); // let the surgery's own glides land before aiming
+    // the pair's top card: only its top strip shows above the
+    // working card, so aim there — as a player would
+    const four = await page.evaluate(() => {
+      const r = document.querySelector('[data-key="Spades-Four"]').getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + 14};
+    });
+    await page.mouse.click(four.x, four.y);    // grab the climbing pair
+    await sleep(30);
+    const lit = await page.evaluate(() =>
+      [...document.querySelectorAll("#slots .slot")].slice(0, 4).map((el) => el.classList.contains("legal")));
+    check("the two free cells light for the pair", lit.join(" ") === "true true false false");
+    const cell0 = await page.evaluate(() => {
+      const r = document.querySelectorAll("#slots .slot")[0].getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    });
+    await page.mouse.click(cell0.x, cell0.y);  // park it there
+    await sleep(400);                          // the two beats
+    const parked = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toA = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      const cellsNow = toA(fc.game.board.cells).map((c) => c.$ === "Some" ? c.value.suit.$ + "-" + c.value.rank.$ : null);
+      const head0 = toA(toA(fc.game.board.cascades)[0]);
+      return {moves: fc.game.moves, cells: cellsNow,
+              working: head0.length === 1 && head0[0].suit.$ === "Diamonds" && head0[0].rank.$ === "Five"};
+    });
+    check("the pair parked in the free cells (" + parked.moves + " moves)",
+          parked.moves === 2 && JSON.stringify(parked.cells) === JSON.stringify(["Hearts-Three", "Spades-Four", "Spades-Seven", "Hearts-Eight"]));
+    check("the five of diamonds is left working", parked.working);
+  }
+
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);
