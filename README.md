@@ -211,7 +211,8 @@ bend server.bend 9090        # another port
 The state lives in the server and nowhere else: every move is
 checked against the rules before it is believed, and several
 games can be open at once, each named by its number. Requests
-speak HTTP/1.0 and each connection carries one request:
+speak HTTP/1.1 and each connection carries one request, closed
+by its answer — the reply says `Connection: close`:
 
 ```bash
 curl localhost:8080/1               # deal game 1, see it as JSON

@@ -4,15 +4,15 @@ import ./terminal-game.bend as T
 import ./plays.bend as P
 
 # ===================================================================
-# The freecell server: an HTTP/1.0 authority over one or many abstract
+# The freecell server: an HTTP/1.1 authority over one or many abstract
 # games, driven through the rules of freecell.bend.
 # ===================================================================
 #   bend server.bend            # listen on 127.0.0.1:8080
 #   bend server.bend 9090        # another port
 #
 # The state lives here and nowhere else: no move is believed until
-# the rules approve it. Each connection carries one request, and the
-# answer closes it, as HTTP/1.0 does:
+# the rules approve it. Each connection carries one request, and
+# the answer closes it — HTTP/1.1, saying so with Connection: close:
 #
 #   curl localhost:8080/1              # deal game 1, see it as JSON
 #   curl localhost:8080/1 -d "1 a"     # a move, the terminal game's words
@@ -740,7 +740,7 @@ def Http.reply(resp: Response) -> String:
   # an answer in full: the status line, the headers, the JSON body
   match resp:
     case Response{+code, +why, +body}:
-      head = {"HTTP/1.0 " ++ Json.num(code) ++ " " ++ why ++ "\r\n" : String}
+      head = {"HTTP/1.1 " ++ Json.num(code) ++ " " ++ why ++ "\r\n" : String}
       type_line = {"Content-Type: application/json\r\n" : String}
       len_line = {"Content-Length: " ++ Json.num(U32.from_nat(String.length(body))) ++ "\r\n" : String}
       head ++ type_line ++ len_line ++ "Connection: close\r\n\r\n" ++ body

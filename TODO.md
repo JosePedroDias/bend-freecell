@@ -1,2 +1,1 @@
 - can we tweak or refactor the beam algorithm so it guarantees the smallest solving plan (without it being prohibitively slow and/or memory hoarder)?
-- server: how complex would the server need to be to support http 1.1? (for the features the server uses)
