@@ -207,6 +207,57 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
   ok("a bottom card that stayed put still paints first in its column", paintOrder(12.5)[0] === 180);
 }
 
+// the dimming rule, in the player's own examples: 6S-7H-8C (bottom
+// to top) climbs — each card a place the one beneath it can hop
+// onto — and is fully lit; 8C-7H-6S falls and only its working card
+// stays lit. A column's working card, every ace, every
+// foundation-ready card and every card of a rising run stay lit;
+// cells and foundations never darken
+{
+  const dimmed = (k) => doc.querySelector(`[data-key="${k}"]`).classList.contains("dim");
+  const setCol0 = (col) => {
+    fc.game.board = Board([col, [], [], [], [], [], [], []], [null, null, null, null], [0, 0, 0, 0]);
+    fc.render();
+  };
+  setCol0([Card("Spades", "Six"), Card("Hearts", "Seven"), Card("Clubs", "Eight")]); // 6S 7H 8C
+  ok("a rising run is fully lit: its 6S", !dimmed("Spades-Six"));
+  ok("a rising run is fully lit: its 7H", !dimmed("Hearts-Seven"));
+  ok("a rising run is fully lit: its 8C", !dimmed("Clubs-Eight"));
+  setCol0([Card("Clubs", "Eight"), Card("Hearts", "Seven"), Card("Spades", "Six")]); // 8C 7H 6S
+  ok("a falling run keeps only its working card lit", !dimmed("Clubs-Eight"));
+  ok("the 7H of a falling run is darkened", dimmed("Hearts-Seven"));
+  ok("the 6S of a falling run is darkened", dimmed("Spades-Six"));
+  // the rest of the rule, on one board (columns listed bottom to top)
+  fc.game.board = Board(
+    [
+      [Card("Spades", "Nine"), Card("Hearts", "King"), Card("Clubs", "Three")], // working, misfit, misfit
+      [Card("Clubs", "Six"), Card("Diamonds", "Seven")],                         // working, the club hops onto it
+      [Card("Spades", "King"), Card("Hearts", "Ace"), Card("Clubs", "Five")],    // working, buried ace, misfit
+      [Card("Clubs", "Nine"), Card("Spades", "Two")],                            // working, foundation-ready
+      [], [], [], [],
+    ],
+    [Card("Diamonds", "Eight"), null, null, null],
+    [1, 0, 0, 0]); // the ace of spades home, so its two is wanted next
+  fc.render();
+  ok("the working card, bottom-most on screen, stays lit", !dimmed("Spades-Nine"));
+  ok("a buried misfit king is darkened", dimmed("Hearts-King"));
+  ok("a misfit deeper in the column is darkened", dimmed("Clubs-Three"));
+  ok("a card the one beneath can rest on stays lit", !dimmed("Diamonds-Seven"));
+  ok("a buried ace stays lit", !dimmed("Hearts-Ace"));
+  ok("a buried foundation-ready card stays lit", !dimmed("Spades-Two"));
+  ok("another buried misfit is darkened", dimmed("Clubs-Five"));
+  ok("a card in a cell is never darkened", !dimmed("Diamonds-Eight"));
+  ok("a card at home is never darkened", !dimmed("Spades-Ace"));
+  // the evaluation is redone after a move: take the working card
+  // away, and the buried misfit beneath becomes the working card —
+  // into the light; undo, and it darkens again
+  ok("the working card moves to a cell", fc.play({$: "CascadeToCell", col: 0, cell: 1}) === true);
+  ok("the new working card comes into the light", !dimmed("Hearts-King"));
+  ok("the misfit above it stays darkened", dimmed("Clubs-Three"));
+  fc.undo();
+  ok("back in place, it is darkened again", dimmed("Hearts-King"));
+}
+
 // the stepping protocol, straight through the page's own module
 let state = fc.F.first(fc.game.board, 200);
 ok("search opens as a beam", state.$ === "Beam" && state.level === 200);

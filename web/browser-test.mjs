@@ -133,6 +133,43 @@ try {
   if (!glide("drag → drop", await sample())) failures++;
   check("the drag applied", await page.evaluate(() => window.freecell.game.moves === 1));
 
+  // 4. the darkening: most buried cards carry .dim, and it must
+  // show in pixels, not just in the class list
+  {
+    const count = await page.evaluate(
+      () => document.querySelectorAll("#table .card.dim").length);
+    check("the buried noise is darkened (" + count + " cards)", count >= 25);
+    // the working card of each column — its top of stack, the
+    // bottom-most card on screen — is never darkened
+    const workingLit = await page.evaluate(() => {
+      const byCol = new Map();
+      for (const el of document.querySelectorAll("#table .card")) {
+        if (+el.dataset.y < 180) continue; // the cascades only
+        const col = Math.round((+el.dataset.x - 12.5) / 125);
+        const prev = byCol.get(col);
+        if (!prev || +el.dataset.y > +prev.dataset.y) byCol.set(col, el);
+      }
+      for (const el of byCol.values()) if (el.classList.contains("dim")) return false;
+      return byCol.size > 0;
+    });
+    check("every column's working card stays lit", workingLit);
+    const key = await page.evaluate(() => {
+      const el = document.querySelector("#table .card.dim");
+      return el ? el.dataset.key : null;
+    });
+    const clip = await page.evaluate((key) => {
+      const r = document.querySelector(`[data-key="${key}"] .face`).getBoundingClientRect();
+      return {x: r.x, y: r.y, width: r.width, height: r.height};
+    }, key);
+    const withDim = await page.screenshot({clip});
+    await page.evaluate((key) => document.querySelector(`[data-key="${key}"]`).classList.remove("dim"), key);
+    const withoutDim = await page.screenshot({clip});
+    let diff = 0;
+    const n = Math.min(withDim.length, withoutDim.length);
+    for (let i = 0; i < n; i++) if (withDim[i] !== withoutDim[i]) diff++;
+    check("the darkening renders in pixels (" + diff + " bytes differ)", diff > n / 100);
+  }
+
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);

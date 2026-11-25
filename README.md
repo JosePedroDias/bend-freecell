@@ -46,7 +46,12 @@ moves, the search — is a call into the bundled checked code; the
 page only draws the answers and reads the clicks.
 
 Drag a card, or click a card and then its destination;
-double-click sends a card home when the rules allow it. `Undo`
+double-click sends a card home when the rules allow it. Buried
+cards that are not aces, not wanted by their foundations, and not
+part of a rising run — each card a place the one beneath it can
+rest on — are darkened: the noise to clear away. The module names
+them, the page dims them, and a card in hand is always fully lit.
+`Undo`
 and `Redo` walk the history, `Safe` plays every safe home move at
 once, and `Solve` beam-searches for a winning line — one level
 per beat, with a progress bar, so the page never freezes — then
@@ -73,8 +78,9 @@ has the rules refuse an illegal move and take a legal one, walks
 undo and redo, sends a safe ace home, wins a crafted endgame to see
 the banner, opens a search within a small budget, checks every
 column's paint order (including a card that lands exactly where it
-already was), and checks the deal box and the address name the
-game. It is the cheap gate for `web/web.html`.
+already was), checks the darkening of the buried noise, and checks
+the deal box and the address name the game. It is the cheap gate
+for `web/web.html`.
 
 jsdom renders no pixels, so it cannot see whether a card glides to
 its slot or teleports. The glides are watched in a real browser:

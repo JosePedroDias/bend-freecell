@@ -67,6 +67,63 @@ def Web.move_word(m: F.Move) -> String:
   # winning line
   S.Solve.word(m)
 
+def Web.is_ace(c: F.Card) -> Bool:
+  # any suit's ace: always free to go home, never noise
+  match c:
+    case F.Card{_, rank}:
+      F.Rank.is_eq(rank, F.Ace{})
+
+def Web.is_noise(+c: F.Card, +below: F.Card, +founds: +List<U32>) -> Bool:
+  # a buried card is noise when it is no ace, its foundation does
+  # not want it next, and the card beneath it cannot rest on it: a
+  # lit column reads bottom-to-top as building order, each card
+  # ready to hop onto the one above it — 6S 7H 8C climbs, 8C 7H 6S
+  # does not
+  Bool.not(Web.is_ace(c)) && Bool.not(F.Founds.takes(founds, c)) && Bool.not(F.Card.can_stack_on(below, c))
+
+def Web.dim_rest(p: +List<F.Card>, below: F.Card, +founds: +List<U32>, +acc: +List<F.Card>) -> +List<F.Card>:
+  # the cards above a column's working one, each judged against the
+  # card beneath it. Piles are top-first — the working card is the
+  # head — so the card beneath, on screen, is the previous card, the
+  # one dealt onto it later
+  match p:
+    case Nil{}:
+      acc
+    case +card <> rest:
+      Web.dim_rest(rest, card, founds,
+        Bool.pick(+List<F.Card>, Web.is_noise(card, below, founds), card <> acc, acc))
+
+def Web.dim_pile(p: +List<F.Card>, +founds: +List<U32>, +acc: +List<F.Card>) -> +List<F.Card>:
+  # one column: its working card — the top of the stack, the
+  # bottom-most on screen, the one a player can always pick up — is
+  # never noise; every card above it is judged against the card
+  # beneath each
+  match p:
+    case Nil{}:
+      acc
+    case top <> rest:
+      Web.dim_rest(rest, top, founds, acc)
+
+def Web.dim_piles(piles: +List<+List<F.Card>>, +founds: +List<U32>, +acc: +List<F.Card>) -> +List<F.Card>:
+  # every column's noise
+  match piles:
+    case Nil{}:
+      acc
+    case +p <> ps:
+      Web.dim_piles(ps, founds, Web.dim_pile(p, founds, acc))
+
+def Web.dim(b: F.Board) -> +List<F.Card>:
+  # the cards the page darkens: buried cards that are no aces, are
+  # not wanted home, and do not continue a rising run — the card
+  # beneath them cannot rest on them. A column's working card — the
+  # top of its stack, the bottom-most on screen, the one a player
+  # can always pick up — every ace, every foundation-ready card and
+  # every card of a run climbing from the bottom stay lit; cells
+  # and foundations are never darkened at all
+  match b:
+    case F.Board{cascades, _, founds}:
+      Web.dim_piles(cascades, founds, {Nil{} : +List<F.Card>})
+
 # --- The self-check's helpers ------------------------------------
 
 def Web.try_all(ms: +List<F.Move>, got: Maybe<&2, F.Board>) -> Maybe<&2, F.Board>:
@@ -125,4 +182,17 @@ def main() -> IO(Unit):
     +opened : S.Search = S.Solver.first(S.Solver.autoplay(64n, b), 3n)
     +stepped : S.Search = S.Beam.step(S.Beam.step(opened))
     Web.beam_left(stepped, 1n)
+    # the dim vocabulary on two crafted columns, bottom to top:
+    # 6S-7H-8C climbs — each card a place the one beneath it can hop
+    # onto — and stays fully lit; J♦-10♠-9♥ falls, and darkens
+    # above its working card. Exactly the ten and the nine are named
+    +empty : +List<F.Card> = {Nil{} : +List<F.Card>}
+    +noise : F.Board = F.Board{
+      [F.Card{F.Spades{}, F.Six{}} <> (F.Card{F.Hearts{}, F.Seven{}} <> (F.Card{F.Clubs{}, F.Eight{}} <> empty)),
+       F.Card{F.Diamonds{}, F.Jack{}} <> (F.Card{F.Spades{}, F.Ten{}} <> (F.Card{F.Hearts{}, F.Nine{}} <> empty)),
+       empty, empty, empty, empty, empty, empty],
+      [None{}, None{}, None{}, None{}],
+      [0, 0, 0, 0]}
+    Web.expect(F.Pile.is_eq(Web.dim(noise), [F.Card{F.Hearts{}, F.Nine{}}, F.Card{F.Spades{}, F.Ten{}}]),
+      "the dim rule should name the falling ten and nine")
     IO.print("web api ok\n")

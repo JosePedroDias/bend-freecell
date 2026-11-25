@@ -106,9 +106,15 @@
     fill: #fffdf5;
     stroke: #b4ad9e;
     stroke-width: 1;
+    transition: fill 0.18s ease;
   }
-  .idx { font-size: 21px; font-weight: 700; }
-  .pip { font-size: 46px; text-anchor: middle; pointer-events: none; }
+  /* the module names the buried noise; the page darkens it. Plain
+     fill and opacity, not a CSS filter: basic SVG properties render
+     identically in every engine */
+  .card.dim .face { fill: #d4d0c2; stroke: #a39d8f; }
+  .card.dim .idx, .card.dim .pip { opacity: 0.55; }
+  .idx { font-size: 21px; font-weight: 700; transition: opacity 0.18s ease; }
+  .pip { font-size: 46px; text-anchor: middle; pointer-events: none; transition: opacity 0.18s ease; }
   .card { fill: var(--ink); }
   .card.red { fill: var(--red); }
 
@@ -234,6 +240,7 @@ const F = {
   autoplay: W["Web.safe"],
   first:   W["Web.open"],
   step:    W["Web.step"],
+  dimmed:  W["Web.dim"],
 };
 
 // --- the table's geometry ----------------------------------------
@@ -492,6 +499,12 @@ function render() {
     prevPos.set(key, {x: p.x, y: p.y});
   }
   setTimeout(() => { if (paintGen === gen) settle(); }, 220);
+  // the buried noise: the module names the cards to darken — never
+  // the bottom of a column, an ace, a card its foundation wants
+  // next, or a card running on the one beneath — and the page only
+  // darkens what it is told to, so cells and foundations stay lit
+  const dim = new Set(toArr(F.dimmed(game.board)).map(keyOf));
+  for (const el of cardEls.values()) el.classList.toggle("dim", dim.has(el.dataset.key));
   updateChrome();
   checkWon();
 }
@@ -758,6 +771,7 @@ svg.addEventListener("pointermove", (e) => {
     drag.moved = true;
     clearSelection();
     drag.el.classList.add("drag");
+    drag.el.classList.remove("dim"); // a card in hand is fully lit
     if (drag.el.parentNode !== flightsG) flightsG.appendChild(drag.el);
     markLegal(drag.src);
   }
