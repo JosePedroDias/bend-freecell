@@ -35,10 +35,10 @@ def solve(g, beam_size=256, levels=200, verbose=False):
     def can_stack(c, onto):
         return c[1] + 1 == onto[1] and is_red(c[0]) != is_red(onto[0])
 
-    def can_found(c):
+    def can_found(c, founds):
         return c[1] == founds[c[0]]
 
-    def safe_found(c):
+    def safe_found(c, founds):
         r = c[1] + 1
         if r <= 2:
             return True
@@ -48,15 +48,15 @@ def solve(g, beam_size=256, levels=200, verbose=False):
             opp = (founds[1], founds[2])
         return min(opp) >= r - 1
 
-    def homes(c):
-        return can_found(c) and safe_found(c)
+    def homes(c, founds):
+        return can_found(c, founds) and safe_found(c, founds)
 
     def autoplay(state):
         cols, cells, founds = state
         while True:
             moved = False
             for ci, c in enumerate(cells):
-                if c and homes(c):
+                if c and homes(c, founds):
                     cells[ci] = None
                     founds[c[0]] += 1
                     autos[0] += 1
@@ -65,7 +65,7 @@ def solve(g, beam_size=256, levels=200, verbose=False):
             if moved:
                 continue
             for i, col in enumerate(cols):
-                if col and homes(col[-1]):
+                if col and homes(col[-1], founds):
                     c = col.pop()
                     founds[c[0]] += 1
                     autos[0] += 1
