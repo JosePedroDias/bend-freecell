@@ -33,3 +33,12 @@ def Laws.server_governs_its_games():
 
 def Laws.dim_names_the_buried_noise():
   {==}
+
+def Laws.supermove_expands_the_climbing_run():
+  {==}
+
+def Laws.supermove_stages_over_a_spare_column():
+  {==}
+
+def Laws.supermove_refuses_what_the_cells_cannot_carry():
+  {==}

@@ -241,6 +241,8 @@ const F = {
   first:   W["Web.open"],
   step:    W["Web.step"],
   dimmed:  W["Web.dim"],
+  grab:    W["Web.grab"],
+  supermove: W["Web.supermove"],
 };
 
 // --- the table's geometry ----------------------------------------
@@ -436,16 +438,21 @@ function placements(b) {
   return out;
 }
 
-// where a card may be picked up from: the top of a cascade, or a cell
+// where a card may be picked up from: the working card or a cell —
+// or any card of a column's rising run, which a supermove carries
+// together with everything beneath it, down to the working card
 function movableOf(b, key) {
   const piles = toArr(b.cascades);
   for (let i = 0; i < piles.length; i++) {
-    const top = toArr(piles[i])[0];
-    if (top && keyOf(top) === key) return {kind: "cascade", idx: i};
+    const cards = toArr(piles[i]);
+    const g = +F.grab(b, i);
+    for (let j = 0; j < cards.length && j < g; j++) {
+      if (keyOf(cards[j]) === key) return {kind: "cascade", idx: i, upto: j};
+    }
   }
   const cells = toArr(b.cells);
   for (let i = 0; i < cells.length; i++) {
-    if (cells[i].$ === "Some" && keyOf(cells[i].value) === key) return {kind: "cell", idx: i};
+    if (cells[i].$ === "Some" && keyOf(cells[i].value) === key) return {kind: "cell", idx: i, upto: 0};
   }
   return null;
 }
@@ -485,18 +492,26 @@ function glide(el, x, y) {
 function render() {
   const gen = ++paintGen;
   lastPl = placements(game.board);
+  const placed = new Set();
   for (const p of lastPl) {
     const key = keyOf(p.card);
+    placed.add(key);
     let el = cardEls.get(key);
     if (!el) { el = cardEl(p.card); cardEls.set(key, el); }
     const was = prevPos.get(key);
     const moved = !was || was.x !== p.x || was.y !== p.y;
     if (moved && el.parentNode !== flightsG) flightsG.appendChild(el);
     el.classList.remove("drag");
-    if (moved) glide(el, p.x, p.y);
-    else el.style.transform = "translate(" + p.x + "px," + p.y + "px)";
+    // glide always: a card sent home after a refused drop is not a
+    // mover by position, but it is mid-air and must fly back
+    glide(el, p.x, p.y);
     el.dataset.x = p.x; el.dataset.y = p.y;
     prevPos.set(key, {x: p.x, y: p.y});
+  }
+  // a card not on the board is off the table: sweep the leftovers.
+  // Only surgery from the console or the tests can produce them
+  for (const [key, el] of cardEls) {
+    if (!placed.has(key)) { el.remove(); cardEls.delete(key); prevPos.delete(key); }
   }
   setTimeout(() => { if (paintGen === gen) settle(); }, 220);
   // the buried noise: the module names the cards to darken — never
@@ -513,6 +528,18 @@ function clearSelection() {
   game.selected = null;
   for (const el of cardsG.children) el.classList.remove("selected");
   for (const kind in slotEls) for (const el of slotEls[kind]) el.classList.remove("legal", "hot");
+}
+
+// the grabbed run (or the one cell card), lit as a unit
+function markSelected(src) {
+  const keys = new Set();
+  if (src.kind === "cascade") {
+    const pile = toArr(toArr(game.board.cascades)[src.idx] || {$: "Nil"});
+    for (let j = 0; j <= src.upto; j++) keys.add(keyOf(pile[j]));
+  } else {
+    keys.add(keyOf(toArr(game.board.cells)[src.idx].value));
+  }
+  for (const el of cardEls.values()) el.classList.toggle("selected", keys.has(el.dataset.key));
 }
 
 // --- the rules, consulted ---------------------------------------
@@ -534,10 +561,23 @@ function moveFor(src, slot) {
 }
 
 function markLegal(src) {
-  for (const kind in slotEls) slotEls[kind].forEach((el, i) => {
-    const m = moveFor(src, {kind, idx: i});
-    if (m && canMove(m)) el.classList.add("legal");
-  });
+  if (src.kind === "cascade") {
+    // columns: a supermove carries the run there — a single card is
+    // the run of one, and the same check takes it
+    for (let t = 0; t < 8; t++) {
+      if (t !== src.idx && F.supermove(game.board, src.idx, src.upto, t).$ === "Some") {
+        slotEls.cascade[t].classList.add("legal");
+      }
+    }
+    // cells and foundations take single cards only
+    if (src.upto === 0) {
+      for (let c = 0; c < 4; c++) if (canMove(M.cascadeToCell(src.idx, c))) slotEls.cell[c].classList.add("legal");
+      if (canMove(M.cascadeToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
+    }
+  } else {
+    for (let t = 0; t < 8; t++) if (canMove(M.cellToCascade(src.idx, t))) slotEls.cascade[t].classList.add("legal");
+    if (canMove(M.cellToFoundation(src.idx))) for (let f = 0; f < 4; f++) slotEls.foundation[f].classList.add("legal");
+  }
 }
 
 // play one move through the rules; true when it was taken
@@ -556,8 +596,31 @@ function play(move, quiet) {
   return true;
 }
 
+// a supermove's atomic moves, one beat apart: each is checked by
+// the rules as it plays, and the whole crossing is one undo
+let moveGen = 0;
+async function playMoves(moves) {
+  if (game.playing || game.paused) return;
+  game.playing = true;
+  const gen = moveGen;
+  const entry = {board: game.board, n: 0};
+  game.past.push(entry);
+  game.future.length = 0;
+  for (const m of moves) {
+    if (game.paused || gen !== moveGen) break;
+    const got = F.apply(game.board, m);
+    if (got.$ !== "Some") { say("the supermove broke — the board changed", true); break; }
+    game.board = got.value;
+    game.moves += 1;
+    entry.n += 1;
+    render();
+    await new Promise((ok) => setTimeout(ok, 110));
+  }
+  game.playing = false;
+}
+
 function undo() {
-  if (game.paused) return;
+  if (game.paused || game.playing) return;
   if (game.solving) game.cancelSolve = true;
   const e = game.past.pop();
   if (!e) return;
@@ -570,7 +633,7 @@ function undo() {
 }
 
 function redo() {
-  if (game.paused) return;
+  if (game.paused || game.playing) return;
   if (game.solving) game.cancelSolve = true;
   const e = game.future.pop();
   if (!e) return;
@@ -584,7 +647,7 @@ function redo() {
 
 // every safe home move at once, as the solver's autoplay says
 function safeMoves() {
-  if (game.paused) return;
+  if (game.paused || game.playing) return;
   if (game.solving) game.cancelSolve = true;
   const pair = F.autoplay(game.board);
   const moves = toArr(pair.snd);
@@ -614,7 +677,7 @@ const SOLVE_LEVELS = 200;
 
 async function solve(levels) {
   const budget = levels || SOLVE_LEVELS;
-  if (game.paused) return;
+  if (game.paused || game.playing) return;
   if (game.solving) { game.cancelSolve = true; return; }  // second click: cancel
   if (game.playing) return;
   game.solving = true;
@@ -668,6 +731,7 @@ async function playLine() {
 // --- new games ---------------------------------------------------
 
 function newGame(no) {
+  moveGen += 1; // a supermove in flight stops at the new deal
   if (game.solving) game.cancelSolve = true;
   // the clock starts with the deal; a pause does not survive it
   game.paused = false;
@@ -729,7 +793,7 @@ function slotAt(p) {
   return null;
 }
 
-let drag = null; // {src, key, el, offX, offY, startX, startY, moved}
+let drag = null; // {src, key, el, els, offs, offX, offY, startX, startY, moved}
 
 svg.addEventListener("pointerdown", (e) => {
   if (game.solving || game.playing || game.paused) return;
@@ -749,15 +813,42 @@ svg.addEventListener("pointerdown", (e) => {
     if (game.selected) { const s = game.selected; clearSelection(); tryTarget(slotAt(p), s); }
     return;
   }
-  const grabX = p.x - +cardG.dataset.x;
-  const grabY = p.y - +cardG.dataset.y;
-  drag = {src, key, el: cardG, offX: grabX, offY: grabY, startX: p.x, startY: p.y, moved: false};
+  // the run a grab lifts: the grabbed card and everything beneath
+  // it, down to the working card — they travel as one fan
+  const els = [];
+  if (src.kind === "cascade") {
+    const pile = toArr(toArr(game.board.cascades)[src.idx] || {$: "Nil"});
+    for (let j = 0; j <= src.upto; j++) els.push(cardEls.get(keyOf(pile[j])));
+  } else {
+    els.push(cardG);
+  }
+  const baseY = +cardG.dataset.y;
+  drag = {src, key, el: cardG, els,
+          offs: els.map((el) => +el.dataset.y - baseY),
+          offX: p.x - +cardG.dataset.x, offY: p.y - baseY,
+          startX: p.x, startY: p.y, moved: false};
   svg.setPointerCapture(e.pointerId);
 });
 
 // a second click, when a card is already selected: aim it somewhere
 function tryTarget(slot, src) {
   if (!slot) return;
+  if (slot.kind === "cascade") {
+    // a run (or a single card) crosses as a supermove
+    const got = F.supermove(game.board, src.idx, src.upto, slot.idx);
+    if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return; }
+    if (src.kind === "cascade" && src.upto === 0) {
+      const m = M.cascadeToCascade(src.idx, slot.idx);
+      if (canMove(m)) { play(m); return; }
+    }
+    if (src.kind === "cell") {
+      const m = M.cellToCascade(src.idx, slot.idx);
+      if (canMove(m)) { play(m); return; }
+    }
+    say("illegal move", true);
+    return;
+  }
+  if (src.upto !== 0) { say("a run lands only on a column", true); return; }
   const m = moveFor(src, slot);
   if (m && canMove(m)) play(m);
   else say("illegal move", true);
@@ -770,12 +861,17 @@ svg.addEventListener("pointermove", (e) => {
     if (Math.hypot(p.x - drag.startX, p.y - drag.startY) < 6) return;
     drag.moved = true;
     clearSelection();
-    drag.el.classList.add("drag");
-    drag.el.classList.remove("dim"); // a card in hand is fully lit
-    if (drag.el.parentNode !== flightsG) flightsG.appendChild(drag.el);
+    for (const el of drag.els) {
+      el.classList.add("drag");
+      el.classList.remove("dim"); // a card in hand is fully lit
+      if (el.parentNode !== flightsG) flightsG.appendChild(el);
+    }
     markLegal(drag.src);
   }
-  drag.el.style.transform = "translate(" + (p.x - drag.offX) + "px," + (p.y - drag.offY) + "px)";
+  const x = p.x - drag.offX, y = p.y - drag.offY;
+  drag.els.forEach((el, j) => {
+    el.style.transform = "translate(" + x + "px," + (y + drag.offs[j]) + "px)";
+  });
   const slot = slotAt(p);
   for (const kind in slotEls) slotEls[kind].forEach((el, i) =>
     el.classList.toggle("hot", !!slot && slot.kind === kind && slot.idx === i && el.classList.contains("legal")));
@@ -788,22 +884,37 @@ svg.addEventListener("pointerup", (e) => {
   if (d.moved) {
     const p = svgPoint(e);
     const slot = slotAt(p);
-    const m = slot && moveFor(d.src, slot);
     clearSelection();
-    if (m && canMove(m)) play(m); else render();  // render: glide home
+    if (slot && slot.kind === "cascade") {
+      const got = F.supermove(game.board, d.src.idx, d.src.upto, slot.idx);
+      if (got.$ === "Some") { playMoves(toArr(got.value.moves)); return; }
+    }
+    if (slot && d.src.upto === 0) {
+      const m = moveFor(d.src, slot);
+      if (m && canMove(m)) { play(m); return; }
+    }
+    render(); // render: the whole fan glides home
     return;
   }
   // a plain click: select, or aim a selection
   if (game.selected) {
     const s = game.selected;
-    const same = s.kind === d.src.kind && s.idx === d.src.idx;
+    const same = s.kind === d.src.kind && s.idx === d.src.idx && s.upto === d.src.upto;
+    const regrab = s.kind === d.src.kind && s.idx === d.src.idx && !same;
     clearSelection();
-    if (!same) tryTarget(slotAt(svgPoint(e)), s); // the same card: just deselect
+    if (same) return; // the same grab again: just deselect
+    if (regrab) { // deeper or shallower in the same column: re-grab
+      game.selected = d.src;
+      markSelected(d.src);
+      markLegal(d.src);
+      return;
+    }
+    tryTarget(slotAt(svgPoint(e)), s);
     return;
   }
   clearSelection();
   game.selected = d.src;
-  d.el.classList.add("selected");
+  markSelected(d.src);
   markLegal(d.src);
   say("");
 });
@@ -813,7 +924,7 @@ svg.addEventListener("dblclick", (e) => {
   const cardG = e.target.closest ? e.target.closest(".card") : null;
   if (!cardG) return;
   const src = movableOf(game.board, cardG.dataset.key);
-  if (!src) return;
+  if (!src || src.upto !== 0) return; // only a working card goes home
   const m = src.kind === "cascade" ? M.cascadeToFoundation(src.idx) : M.cellToFoundation(src.idx);
   if (canMove(m)) play(m); else say("that card cannot go home", true);
 });
@@ -845,8 +956,17 @@ document.addEventListener("keydown", (e) => {
   else if (k === "h") solve();
 });
 
+// a whole supermove through the UI's own path: the module expands
+// it, the page plays the moves — for the console and the tests
+async function playSuper(col, upto, target) {
+  const got = F.supermove(game.board, col, upto, target);
+  if (got.$ !== "Some") return false;
+  await playMoves(toArr(got.value.moves));
+  return true;
+}
+
 // a handle for the console, and for the page's own tests
-window.freecell = {game, F, newGame, play, undo, redo, safeMoves, solve, render, togglePause};
+window.freecell = {game, F, newGame, play, playSuper, undo, redo, safeMoves, solve, render, togglePause};
 
 // the page opens the way New deals — a random game from the classic
 // range, 11982 re-rolled — unless the address hands one over, in

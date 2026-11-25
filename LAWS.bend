@@ -66,3 +66,21 @@ law server_governs_its_games:
 # order: the five of clubs, the nine of hearts, the ten of spades.
 law dim_names_the_buried_noise:
   {Web.Web.dim(Web.Web.dim_witness()) == [FreeCell.Card{FreeCell.Clubs{}, FreeCell.Five{}}, FreeCell.Card{FreeCell.Hearts{}, FreeCell.Nine{}}, FreeCell.Card{FreeCell.Spades{}, FreeCell.Ten{}}] : +List<FreeCell.Card>}
+
+# The supermove, witnessed three ways — one law per gait of the
+# trampoline. A climbing run of three crosses onto a waiting card
+# in exactly five single moves: two parks into free cells, the
+# landing of the run's top card, two restacks in reverse.
+law supermove_expands_the_climbing_run:
+  {Web.Web.super_moves(Web.Web.super_witness(), 0, 2, 1) == [FreeCell.CascadeToCell{0, 0}, FreeCell.CascadeToCell{0, 1}, FreeCell.CascadeToCascade{0, 1}, FreeCell.CellToCascade{1, 1}, FreeCell.CellToCascade{0, 1}] : +List<FreeCell.Move>}
+
+# With one free cell and spare empty columns, the same run crosses
+# by staging its lower half on the first spare column, spending
+# the same five moves.
+law supermove_stages_over_a_spare_column:
+  {Web.Web.super_moves(Web.Web.stage_witness(), 0, 2, 1) == [FreeCell.CascadeToCascade{0, 2}, FreeCell.CascadeToCell{0, 3}, FreeCell.CascadeToCascade{0, 1}, FreeCell.CellToCascade{3, 1}, FreeCell.CascadeToCascade{2, 1}] : +List<FreeCell.Move>}
+
+# With no free cell and no empty column, nothing bigger than one
+# card can cross, however willing the target.
+law supermove_refuses_what_the_cells_cannot_carry:
+  {Web.Web.is_some_super(Web.Web.supermove(Web.Web.crowded_witness(), 0, 2, 1)) == False{} : Bool}

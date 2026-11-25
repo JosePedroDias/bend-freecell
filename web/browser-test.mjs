@@ -170,6 +170,60 @@ try {
     check("the darkening renders in pixels (" + diff + " bytes differ)", diff > n / 100);
   }
 
+  // 5. a supermove by hand: deal a climbing run and a willing
+  // target, click the run's middle card, click the target column
+  {
+    const Con = (h, t) => ({$: "Con", head: h, tail: t});
+    const Nil = {$: "Nil"};
+    const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+    const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+    const laid = await page.evaluate(() => {
+      const Con = (h, t) => ({$: "Con", head: h, tail: t});
+      const Nil = {$: "Nil"};
+      const list = (a) => a.reduceRight((t, h) => Con(h, t), Nil);
+      const Card = (s, r) => ({$: "Card", suit: {$: s}, rank: {$: r}});
+      const fc = window.freecell;
+      fc.game.board = {$: "Board",
+        cascades: list([list([Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")]),
+                       list([Card("Hearts", "Five")]), Nil, Nil, Nil, Nil, Nil, Nil]),
+        cells: list([{$: "None"}, {$: "None"}, {$: "None"}, {$: "None"}]),
+        founds: list([0, 0, 0, 0])};
+      fc.game.moves = 0;          // this section starts from a clean slate
+      fc.game.past.length = 0;
+      fc.game.future.length = 0;
+      fc.render();
+      return true;
+    });
+    check("the run board is laid", laid === true);
+    await sleep(350); // let the surgery's own glides land before aiming
+    const centerOf = async (key) => page.evaluate((key) => {
+      const r = document.querySelector(`[data-key="${key}"]`).getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+    }, key);
+    const col1 = await centerOf("Hearts-Five");
+    // the run's middle card: only its top strip is visible above
+    // the working card, so aim there — as a player would
+    const four = await page.evaluate(() => {
+      const r = document.querySelector('[data-key="Spades-Four"]').getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + 14};
+    });
+    await page.mouse.click(four.x, four.y);    // select the run
+    await sleep(30);
+    await page.mouse.click(col1.x, col1.y);    // aim it at the five of hearts
+    await sleep(450);                           // let the three beats play
+    const after = await page.evaluate(() => {
+      const fc = window.freecell;
+      const toArr = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+      const pile1 = toArr(toArr(fc.game.board.cascades)[1]);
+      return {moves: fc.game.moves,
+              landed: pile1.length === 3 && pile1[0].suit.$ === "Hearts" && pile1[0].rank.$ === "Three",
+              source: toArr(toArr(fc.game.board.cascades)[0]).length === 1};
+    });
+    check("the two-card run crossed in three moves (" + after.moves + ")", after.moves === 3);
+    check("the run landed on the five", after.landed);
+    check("the source column kept its deepest card", after.source);
+  }
+
   check("no page errors", pageErrors.length === 0);
   console.log(failures === 0 ? "\nALL BROWSER TESTS PASS" : "\n" + failures + " FAILURES");
   process.exit(failures === 0 ? 0 : 1);

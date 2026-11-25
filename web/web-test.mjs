@@ -258,6 +258,60 @@ ok("paint order settles after a redeal", bottomUp(paintOrder(12.5)));
   ok("back in place, it is darkened again", dimmed("Hearts-King"));
 }
 
+// supermoves: a column's rising run crosses to another column as a
+// sequence of single moves — parks, a landing, restacks — every
+// one checked by the rules as it plays, and the whole crossing is
+// one undo. With too few cells and no spare column, nothing moves
+{
+  const toJs = (l) => { const a = []; while (l && l.$ === "Con") { a.push(l.head); l = l.tail; } return a; };
+  const head = (col) => { const pile = toJs(toJs(fc.game.board.cascades)[col]); return pile.length ? pile[0].suit.$ + "-" + pile[0].rank.$ : null; };
+  const runBoard = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")], // the climbing run
+     [Card("Clubs", "Six")],                                                      // waiting to take it
+     [], [], [], [], [], []],
+    [null, null, null, null], [0, 0, 0, 0]);
+  fc.game.board = runBoard;
+  fc.render();
+  ok("the run is grabbable to its top", +fc.F.grab(fc.game.board, 0) === 3);
+  const got = fc.F.supermove(fc.game.board, 0, 2, 1);
+  ok("the supermove expands", got.$ === "Some");
+  const ms = toJs(got.value.moves);
+  ok("three cards cross in five moves", ms.length === 5);
+  ok("first the two parks", ms[0].$ === "CascadeToCell" && ms[1].$ === "CascadeToCell");
+  ok("then the run's top card lands", ms[2].$ === "CascadeToCascade");
+  ok("then the two restacks", ms[3].$ === "CellToCascade" && ms[4].$ === "CellToCascade");
+  ok("a top the target refuses is refused", fc.F.supermove(fc.game.board, 0, 1, 1).$ === "None");
+  // the UI path: five beats, one undo
+  ok("the page plays the supermove", await fc.playSuper(0, 2, 1) === true);
+  ok("five moves counted", fc.game.moves === 5);
+  ok("the run sits on the six", head(1) === "Hearts-Three");
+  ok("the source column is bare", head(0) === null);
+  fc.undo();
+  ok("one undo takes the whole run back", fc.game.moves === 0 && head(0) === "Hearts-Three");
+  // staging: one free cell, spare empty columns
+  fc.game.board = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")],
+     [Card("Clubs", "Six")], [], [], [], [], [], []],
+    [Card("Spades", "Seven"), Card("Hearts", "Eight"), Card("Diamonds", "Nine"), null],
+    [0, 0, 0, 0]);
+  fc.render();
+  ok("staged over a spare column", await fc.playSuper(0, 2, 1) === true);
+  ok("the staged crossing also takes five moves", fc.game.moves === 5);
+  const cells = toJs(fc.game.board.cells).map((c) => c.$ === "Some" ? c.value.rank.$ : null);
+  ok("the cells end as they began", JSON.stringify(cells) === JSON.stringify(["Seven", "Eight", "Nine", null]));
+  // no cells, no empties: even a willing target refuses
+  fc.game.board = Board(
+    [[Card("Hearts", "Three"), Card("Spades", "Four"), Card("Diamonds", "Five")],
+     [Card("Clubs", "Six")],
+     [Card("Spades", "Seven")], [Card("Hearts", "Eight")], [Card("Diamonds", "Nine")],
+     [Card("Clubs", "Ten")], [Card("Spades", "Jack")], [Card("Hearts", "Queen")]],
+    [Card("Clubs", "Ace"), Card("Diamonds", "Two"), Card("Clubs", "King"), Card("Diamonds", "Ace")],
+    [0, 0, 0, 0]);
+  fc.render();
+  ok("no cells and no empties refuse the run", await fc.playSuper(0, 2, 1) === false);
+  ok("nothing moved", fc.game.moves === 5 && head(0) === "Hearts-Three"); // 5 from the staged test, unchanged
+}
+
 // the stepping protocol, straight through the page's own module
 let state = fc.F.first(fc.game.board, 200);
 ok("search opens as a beam", state.$ === "Beam" && state.level === 200);

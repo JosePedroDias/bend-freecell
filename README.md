@@ -46,7 +46,13 @@ moves, the search — is a call into the bundled checked code; the
 page only draws the answers and reads the clicks.
 
 Drag a card, or click a card and then its destination;
-double-click sends a card home when the rules allow it. Buried
+double-click sends a card home when the rules allow it. A column's
+run — its working card and the cards stacked on it, up to the one
+you grab — crosses to another column in one gesture, expanded by
+the module into single moves that the page plays a beat apart,
+every one checked by the rules; the whole crossing is one undo,
+and the cells and empty columns set how much one gesture can
+carry. Buried
 cards that are not aces, not wanted by their foundations, and not
 part of a rising run — each card a place the one beneath it can
 rest on — are darkened: the noise to clear away. The module names
