@@ -253,6 +253,7 @@ const X0 = 12.5, GX = 125;         // the 8-column grid
 const TOP = 16, CASC = 180;        // the two rows
 const SPAN = 720 - CASC - CH;      // how deep a cascade may reach
 const colX = (i) => X0 + i * GX;
+const PAD = 8;                     // the rim of empty bay around every card
 
 const SUITS = ["Spades", "Hearts", "Diamonds", "Clubs"]; // foundation order
 const RANKS = ["Ace", "Two", "Three", "Four", "Five", "Six", "Seven",
@@ -313,24 +314,27 @@ function mk(tag, attrs) {
   return el;
 }
 
-// the sixteen outlines: cells, foundations, cascade bases
+// the sixteen bays: cells, foundations, cascade bases. Each is a
+// rim (PAD) wider than a card, so a card parked on it can never
+// cover the whole bay — a legal or hot outline stays visible
+// around the loaded foundations and the tall columns alike
 const slotEls = {cell: [], foundation: [], cascade: []};
 {
-  const slotAttrs = {class: "slot", width: CW, height: CH, rx: 12};
+  const slotAttrs = {class: "slot", width: CW + 2 * PAD, height: CH + 2 * PAD, rx: 12};
   for (let i = 0; i < 4; i++) {
-    const r = mk("rect", {...slotAttrs, x: colX(i), y: TOP});
+    const r = mk("rect", {...slotAttrs, x: colX(i) - PAD, y: TOP - PAD});
     slotsG.appendChild(r); slotEls.cell.push(r);
   }
   for (let i = 0; i < 4; i++) {
     const g = mk("g", {});
-    g.appendChild(mk("rect", {...slotAttrs, x: colX(4 + i), y: TOP}));
+    g.appendChild(mk("rect", {...slotAttrs, x: colX(4 + i) - PAD, y: TOP - PAD}));
     const wm = mk("text", {class: "wm", x: colX(4 + i) + CW / 2, y: TOP + CH / 2 + 21});
     wm.textContent = GLYPH[SUITS[i]];
     g.appendChild(wm);
     slotsG.appendChild(g); slotEls.foundation.push(g.firstChild);
   }
   for (let i = 0; i < 8; i++) {
-    const r = mk("rect", {...slotAttrs, x: colX(i), y: CASC});
+    const r = mk("rect", {...slotAttrs, x: colX(i) - PAD, y: CASC - PAD});
     slotsG.appendChild(r); slotEls.cascade.push(r);
   }
 }

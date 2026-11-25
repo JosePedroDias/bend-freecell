@@ -59,6 +59,14 @@ const fc = window.freecell;
 ok("window.freecell exposed", !!fc);
 ok("52 cards on the table", doc.querySelectorAll(".card").length === 52);
 ok("16 slot outlines", doc.querySelectorAll(".slot").length === 16);
+// every slot is a bay with a rim wider than a card, so a card
+// parked on it — a loaded foundation, a tall column's base — can
+// never bury the legal outline under the cards
+{
+  const face = +doc.querySelector(".card .face").getAttribute("width");
+  const bays = [...doc.querySelectorAll(".slot")].map((el) => +el.getAttribute("width"));
+  ok("every slot bays wider than a card", bays.length === 16 && bays.every((w) => w > face));
+}
 
 // paint order within a column: DOM order must run bottom-up, so the
 // top card is painted last and covers the cards it buries. Positions
