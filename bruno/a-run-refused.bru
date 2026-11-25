@@ -1,0 +1,21 @@
+meta {
+  name: a run the rules refuse
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/12
+  body: text
+  params: {}
+}
+
+body:text {
+  1:2 3
+}
+
+tests {
+  test('the rules refuse, and the refusal never touches the games', () => {
+    expect(res.getStatus()).to.equal(409);
+    expect(res.getBody().error).to.equal('the rules refuse this run');
+  });
+}

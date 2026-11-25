@@ -1,0 +1,21 @@
+meta {
+  name: move to a cell
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/12
+  body: text
+  params: {}
+}
+
+body:text {
+  1 c
+}
+
+tests {
+  test('the freed top card sits in cell c', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().moves).to.equal(3);
+  });
+}

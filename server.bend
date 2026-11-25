@@ -32,6 +32,9 @@ import ./plays.bend as P
 #   curl localhost:8080/random          # a random solvable game
 #   curl localhost:8080/games          # the open games, by their sessions
 #
+# The bruno/ collection plays the same story, cookie and all:
+#   cd bruno && npx -y -p @usebruno/cli bru run --env local
+#
 # Answers are JSON — the whole board, or {"error": ...} with a 4xx.
 # Commands are the terminal game's own words, so a whole winning
 # line can be piped in move by move. The router below is pure: the
@@ -526,8 +529,9 @@ def House.keep(+games: +Map<Session>, +now: Nat) -> +Map<Session>:
 
 def House.index() -> String:
   # what the root says: the routes, and the session every request
-  # plays under
-  "{\"routes\": [\"GET /games — the open games, by their sessions\", \"GET /<game> — a game's state, dealt on first sight\", \"POST /<game> — a command in the terminal game's words, like '1 a'\", \"come without a cookie and one is drawn for you, handed back with the answer — keep the cookie, keep the game; unseen for an hour, a session is wiped\"]}"
+  # plays under. ASCII only — content-length counts characters, so
+  # the wire's every byte must be one
+  "{\"routes\": [\"GET /games - the open games, by their sessions\", \"GET /<game> - a game's state, dealt on first sight\", \"POST /<game> - a command in the terminal game's words, like '1 a'\", \"come without a cookie and one is drawn for you, handed back with the answer: keep the cookie, keep the game; unseen for an hour, a session is wiped\"]}"
 
 def House.ask(+games: +Map<Session>, +now: Nat, +sid: String, req: Req) -> +Map<Session> & Response:
   # one request answered, the games grown, under the session's

@@ -1,0 +1,17 @@
+meta {
+  name: deal game 12
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/12
+  body: none
+  params: {}
+}
+
+tests {
+  test('game 12 is dealt, nothing spent', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().moves).to.equal(0);
+  });
+}

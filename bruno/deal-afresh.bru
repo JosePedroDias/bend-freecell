@@ -1,0 +1,21 @@
+meta {
+  name: deal afresh
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/12
+  body: text
+  params: {}
+}
+
+body:text {
+  d
+}
+
+tests {
+  test('the same game, from its deal again', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().moves).to.equal(0);
+  });
+}

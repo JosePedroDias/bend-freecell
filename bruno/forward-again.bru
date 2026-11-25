@@ -1,0 +1,21 @@
+meta {
+  name: forward again
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/12
+  body: text
+  params: {}
+}
+
+body:text {
+  r
+}
+
+tests {
+  test('the redo spends the safe send again', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().moves).to.equal(4);
+  });
+}

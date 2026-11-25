@@ -1,0 +1,21 @@
+meta {
+  name: send safely home
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/12
+  body: text
+  params: {}
+}
+
+body:text {
+  s
+}
+
+tests {
+  test('the safe home moves are spent as one step', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().moves).to.equal(4);
+  });
+}

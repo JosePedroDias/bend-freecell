@@ -1,0 +1,18 @@
+meta {
+  name: the open games
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/games
+  body: none
+  params: {}
+}
+
+tests {
+  test('the open games, by their sessions', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().games).to.be.an('array');
+    expect(res.getBody().games.length).to.be.above(0);
+  });
+}

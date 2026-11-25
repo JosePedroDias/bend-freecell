@@ -1,0 +1,17 @@
+meta {
+  name: a random game
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/random
+  body: none
+  params: {}
+}
+
+tests {
+  test('a random deal, in the same session', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().game).to.be.within(1, 32000);
+  });
+}

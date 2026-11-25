@@ -235,6 +235,16 @@ curl localhost:8080/1 -d "h"                  # the commands, as JSON
 curl localhost:8080/games                     # the open games, by their sessions
 ```
 
+Or leave the jar to a client that keeps one: the `bruno/` collection
+plays this whole story — deal, park, send home, undo, redo, a
+refusal, deal afresh — with the session cookie carried between
+calls and a test on every answer. Open the folder in the Bruno
+app, or run it cold:
+
+```bash
+cd bruno && npx -y -p @usebruno/cli bru run --env local
+```
+
 Answers are JSON: the whole board — `moves` (how many single
 moves were spent), `cells`, `foundations` (suit by suit),
 `cascades` (each column bottom card first) and `won` — or

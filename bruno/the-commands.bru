@@ -1,0 +1,21 @@
+meta {
+  name: the commands
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/12
+  body: text
+  params: {}
+}
+
+body:text {
+  h
+}
+
+tests {
+  test('the commands, as JSON', () => {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().help).to.be.a('string');
+  });
+}
