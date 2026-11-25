@@ -106,10 +106,11 @@ await sleep(320); // the first render's flights settle
 ok("the big suit glyph is centered", doc.querySelector(".card .pip").getAttribute("y") === "86");
 
 // the page opens on a random game from the classic range — never the
-// unsolvable 11982 — and the deal box and the address name it
+// unsolvable 11982 — and the header and the address name it
 ok("opens on a random game in the classic range",
    fc.game.no >= 1 && fc.game.no <= 32000 && fc.game.no !== 11982);
-ok("the deal box names the game", +doc.getElementById("gameno").value === fc.game.no);
+ok("the header names the game",
+   doc.getElementById("gameline").textContent.includes("game " + fc.game.no));
 ok("the address names the game", window.location.hash === "#" + fc.game.no);
 // the deterministic tests below want a known deal
 fc.newGame(1);

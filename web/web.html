@@ -184,8 +184,7 @@
 <header>
   <h1>FREECELL</h1>
   <button id="new" title="deal a random solvable game (n)">New</button>
-  <input id="gameno" type="number" min="1" max="32000" value="1" title="game number">
-  <button id="deal" title="deal this game number">Deal</button>
+  <button id="deal" title="the same game, from its deal again">Retry game</button>
   <span id="gameline"></span>
   <span id="clock"></span>
   <button id="undo" title="undo (u)">Undo</button>
@@ -849,9 +848,8 @@ function newGame(no) {
   svg.classList.remove("paused");
   $("veil").classList.remove("on");
   game.no = no;
-  // the deal box and the address both name the game, so a link —
-  // freecell.html#4242 — is all it takes to hand one to a friend
-  $("gameno").value = no;
+  // the address names the game, so a link — freecell.html#4242 —
+  // is all it takes to hand one to a friend
   try { history.replaceState(null, "", "#" + no); } catch { location.hash = String(no); }
   game.board = F.deal(no);
   game.past.length = 0;
@@ -1097,10 +1095,7 @@ svg.addEventListener("dblclick", (e) => {
 // --- the buttons, the keys ---------------------------------------
 
 $("new").addEventListener("click", randomGame);
-$("deal").addEventListener("click", () => {
-  const n = Math.max(1, Math.min(32000, Math.floor(+$("gameno").value || 1)));
-  newGame(n);
-});
+$("deal").addEventListener("click", () => newGame(game.no));
 $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("safe").addEventListener("click", safeMoves);
@@ -1111,7 +1106,6 @@ $("pause").addEventListener("click", togglePause);
 $("again").addEventListener("click", randomGame);
 
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT") return;
   const k = e.key.toLowerCase();
   if (k === "p") { togglePause(); return; }
   if (game.paused) return; // while paused, only the pause key answers

@@ -74,10 +74,10 @@ once, said in words. The clock starts with the
 deal; `Pause` (or `p`) holds it and hides the cards, so a break
 is not on the record. The page opens on a random
 solvable game, and so does `New` (the classic range, 11982
-re-rolled); a number and `Deal` deal exactly that game. The
+re-rolled); `Retry game` restarts the same game from its deal. The
 address names the game in play — `web/freecell.html#4242` is
-game 4242, ready to send to a friend — and every deal writes it
-there.
+game 4242, ready to send to a friend — and editing the hash and
+refreshing deals exactly the game you name.
 
 ### Test the web build
 
@@ -95,7 +95,7 @@ the banner, opens a search within a small budget, asks the hint
 for its move on a crafted endgame and a fresh deal, checks every
 column's paint order (including a card that lands exactly where it
 already was), checks the darkening of the buried noise, and checks
-the deal box and the address name the game. It is the cheap gate
+the header and the address name the game. It is the cheap gate
 for `web/web.html`.
 
 jsdom renders no pixels, so it cannot see whether a card glides to
